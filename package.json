@@ -1,0 +1,26 @@
+{
+  "name": "progress-island",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI-powered learning companion that turns reading, chapter progress, and spaced recall into a growing voxel island.",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w shared && npm run build -w server && npm run build -w client",
+    "start": "npm run build && npm run start -w server",
+    "test": "npm run test -w shared && npm run test -w server",
+    "db:backup": "npm run db:backup -w server",
+    "db:seed": "npm run db:seed -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

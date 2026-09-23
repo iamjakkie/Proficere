@@ -1,0 +1,16 @@
+node_modules/
+dist/
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/covers/
+server/data/
+.env
+.DS_Store
+coverage/
+playwright-report/
+test-results/
+client/dist/
+server/dist/
+*.log
+.vite/

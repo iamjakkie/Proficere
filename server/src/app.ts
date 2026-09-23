@@ -1,0 +1,817 @@
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
+import cors from "cors";
+import multer from "multer";
+import fs from "node:fs";
+import path from "node:path";
+import { z } from "zod";
+import {
+  AppError,
+  isSubstantialChapter,
+  FIXTURE_AUTHOR,
+  FIXTURE_BOOK_TITLE,
+  FIXTURE_SOURCE,
+  OutlineChapterSchema,
+  enrichOutline,
+} from "@progress-island/shared";
+import { aiConfigured, config } from "./config.js";
+import type { Db } from "./db.js";
+import { searchCatalog } from "./catalog.js";
+import { extractPdfText, PDF_LIMITS } from "./pdf.js";
+import {
+  contentTypeForCover,
+  coverFilePath,
+  openLibraryCoverUrl,
+  parseCoverUrl,
+  saveRemoteCover,
+  probeRemoteCover,
+  removeCoverFiles,
+  saveUploadedCover,
+} from "./covers.js";
+import {
+  attachBookPdf,
+  bookPdfFile,
+  chapterTextFromLibrary,
+  clearBookPdf,
+  describeLibrary,
+  importChaptersFromAttachedPdf,
+  saveLibraryFolder,
+} from "./library.js";
+import {
+  extractOutlineWithAi,
+  generateReviewPackWithAi,
+  getAiStatus,
+  testOpenRouterConnection,
+} from "./openrouter.js";
+import {
+  addCategory,
+  chapterText,
+  buildMergePreview,
+  confirmChapters,
+  createBook,
+  dashboardPlan,
+  dismissLatestSource,
+  dismissedSourceId,
+  draftOutlineForBook,
+  dueReviews,
+  exportBackup,
+  filterGroundedOutline,
+  getBook,
+  getChapter,
+  getSource,
+  insertSource,
+  islandState,
+  islandTrees,
+  latestSourceForBook,
+  listBooksForLibrary,
+  listCategories,
+  listChapters,
+  localOrEmptyOutline,
+  logActivity,
+  markStalePacks,
+  mergeBookIdentifiers,
+  nextSelectedChapter,
+  nowIso,
+  printQueue,
+  recordReading,
+  refreshPackStale,
+  removeCategory,
+  renameCategory,
+  reorderBooks,
+  restoreBackup,
+  saveReviewPack,
+  scoreAttempt,
+  setBookCover,
+  undoLastProgress,
+  updateChapter,
+  updateReviewItem,
+} from "./store.js";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: PDF_LIMITS.maxBytes },
+});
+
+function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
+) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    void fn(req, res, next).catch(next);
+  };
+}
+
+function requireConsent(body: { consent?: boolean }): void {
+  if (!body.consent) {
+    throw new AppError(
+      "AI requests send the supplied text to OpenRouter and then to the selected model provider. Confirm that you understand this before continuing. Local SQLite storage does not mean processing stays on this Mac.",
+      "consent_required",
+      400,
+    );
+  }
+}
+
+export function createApp(db: Db): Express {
+  const app = express();
+  app.use(cors({ origin: [config.clientOrigin, "http://localhost:5173"] }));
+  app.use(express.json({ limit: "2mb" }));
+
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true, name: "progress-island" });
+  });
+
+  app.get("/api/ai", (_req, res) => {
+    res.json({
+      ...getAiStatus(),
+      notice:
+        "Generative requests use OpenRouter with your server-side key. Uploaded or pasted text leaves this device when you opt in.",
+    });
+  });
+
+  app.post(
+    "/api/ai/test",
+    asyncHandler(async (_req, res) => {
+      if (!aiConfigured()) {
+        throw new AppError(
+          "Configure OpenRouter to enable AI. Add OPENROUTER_API_KEY and OPENROUTER_MODEL to .env.",
+          "missing_config",
+          400,
+        );
+      }
+      const result = await testOpenRouterConnection();
+      res.json(result);
+    }),
+  );
+
+  app.get("/api/dashboard", (_req, res) => {
+    const next = nextSelectedChapter(db);
+    res.json({
+      nextChapter: next?.chapter ?? null,
+      nextBookTitle: next?.bookTitle ?? null,
+      dueReviews: dueReviews(db),
+      island: islandState(db),
+      trees: islandTrees(db),
+      categories: listCategories(db),
+      planProgress: dashboardPlan(db),
+      ai: getAiStatus(),
+    });
+  });
+
+  app.get("/api/island", (_req, res) => {
+    res.json({ island: islandState(db), rewards: undefined });
+  });
+
+  app.get("/api/library", (req, res) => {
+    const match = String(req.query.match ?? "").trim();
+    res.json(describeLibrary(db, match || undefined));
+  });
+
+  app.put(
+    "/api/library",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ path: z.string() }).parse(req.body);
+      res.json(saveLibraryFolder(db, body.path));
+    }),
+  );
+
+  app.put(
+    "/api/books/:id/library",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ filename: z.string().nullable() }).parse(req.body);
+      if (!body.filename) {
+        res.json({ book: clearBookPdf(db, req.params.id), outline: [], sourceId: null, message: null });
+        return;
+      }
+      const book = attachBookPdf(db, req.params.id, body.filename);
+      try {
+        const imported = await importChaptersFromAttachedPdf(db, book.id);
+        res.json({ book, ...imported });
+      } catch (error) {
+        res.json({
+          book,
+          outline: [],
+          sourceId: null,
+          message:
+            error instanceof AppError
+              ? error.message
+              : "The PDF was attached, but chapters could not be read from it.",
+        });
+      }
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/import/library",
+    asyncHandler(async (req, res) => {
+      const book = getBook(db, req.params.id);
+      const imported = await importChaptersFromAttachedPdf(db, book.id);
+      res.json({ book, ...imported, needsConfirmation: true });
+    }),
+  );
+
+  app.get("/api/books", (_req, res) => {
+    res.json({ books: listBooksForLibrary(db) });
+  });
+
+  app.get("/api/categories", (_req, res) => {
+    res.json({ categories: listCategories(db) });
+  });
+
+  app.post(
+    "/api/categories",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ label: z.string() }).parse(req.body);
+      res.status(201).json({ categories: addCategory(db, body.label) });
+    }),
+  );
+
+  app.patch(
+    "/api/categories/:id",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ label: z.string() }).parse(req.body);
+      res.json({ categories: renameCategory(db, req.params.id, body.label) });
+    }),
+  );
+
+  app.delete(
+    "/api/categories/:id",
+    asyncHandler(async (req, res) => {
+      res.json({ categories: removeCategory(db, req.params.id) });
+    }),
+  );
+
+  app.put(
+    "/api/books/:id/category",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ category: z.string().min(1).max(40).nullable() }).parse(req.body);
+      if (body.category && !listCategories(db).some((category) => category.id === body.category)) {
+        throw new AppError("Unknown category.", "category", 400);
+      }
+      const book = mergeBookIdentifiers(db, req.params.id, { category: body.category });
+      res.json({ book });
+    }),
+  );
+
+  app.put(
+    "/api/books/order",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body);
+      res.json({ books: reorderBooks(db, body.ids) });
+    }),
+  );
+
+  app.post(
+    "/api/books",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          title: z.string().min(1),
+          author: z.string().optional().nullable(),
+          edition: z.string().optional().nullable(),
+          isbn: z.string().optional().nullable(),
+          catalogUrl: z.string().optional().nullable(),
+          contentsAvailable: z.boolean().optional(),
+        })
+        .parse(req.body);
+      const book = createBook(db, body);
+      res.status(201).json({ book });
+    }),
+  );
+
+  app.post(
+    "/api/books/fixture",
+    asyncHandler(async (_req, res) => {
+      const book = createBook(db, {
+        title: FIXTURE_BOOK_TITLE,
+        author: FIXTURE_AUTHOR,
+        edition: "laboratory fixture",
+        contentsAvailable: false,
+      });
+      res.status(201).json({ book, sourceText: FIXTURE_SOURCE });
+    }),
+  );
+
+  app.get(
+    "/api/books/:id",
+    asyncHandler(async (req, res) => {
+      const book = getBook(db, req.params.id);
+      const source = latestSourceForBook(db, book.id);
+      res.json({
+        book,
+        chapters: listChapters(db, book.id),
+        source: source
+          ? {
+              id: source.id,
+              provenanceLabel: source.provenance_label,
+              provenanceType: source.provenance_type,
+              filename: source.filename,
+              textHash: source.text_hash,
+            }
+          : null,
+        draftOutline: draftOutlineForBook(db, book.id),
+        dismissedSourceId: dismissedSourceId(db, book.id),
+      });
+    }),
+  );
+
+  app.put(
+    "/api/books/:id/cover",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          coverUrl: z.string().nullable().optional(),
+          isbn: z.string().nullable().optional(),
+        })
+        .parse(req.body);
+      const book = getBook(db, req.params.id);
+      if (body.coverUrl === null && !body.isbn) {
+        removeCoverFiles(book.id);
+        res.json({ book: setBookCover(db, book.id, null, { coverFile: null }) });
+        return;
+      }
+      const isbn = body.isbn?.trim() || book.isbn;
+      const requested = body.coverUrl?.trim()
+        ? body.coverUrl
+        : isbn
+          ? openLibraryCoverUrl(isbn)
+          : null;
+      if (!requested) {
+        throw new AppError(
+          "Paste an image URL, upload a file, or enter an ISBN to look up a cover.",
+          "cover_url",
+          400,
+        );
+      }
+      const parsed = parseCoverUrl(requested);
+      if (parsed.kind === "remote") {
+        await probeRemoteCover(parsed.value);
+        const saved = await saveRemoteCover(book.id, parsed.value);
+        res.json({ book: setBookCover(db, book.id, saved.coverUrl, { coverFile: saved.coverFile }) });
+        return;
+      }
+      res.json({
+        book: setBookCover(db, book.id, parsed.value, {
+          coverFile: book.identifiers.coverFile ?? null,
+        }),
+      });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/cover",
+    upload.single("file"),
+    asyncHandler(async (req, res) => {
+      const book = getBook(db, req.params.id);
+      if (!req.file) {
+        throw new AppError("Choose an image file.", "cover_file", 400);
+      }
+      const saved = saveUploadedCover(book.id, req.file);
+      res.json({ book: setBookCover(db, book.id, saved.coverUrl, { coverFile: saved.coverFile }) });
+    }),
+  );
+
+  app.get("/api/books/:id/cover-image", (req, res, next) => {
+    try {
+      const book = getBook(db, req.params.id);
+      const name = book.identifiers.coverFile;
+      if (!name) {
+        throw new AppError("This book has no uploaded cover.", "cover_file", 404);
+      }
+      const file = coverFilePath(name);
+      if (!fs.existsSync(file)) {
+        throw new AppError("This book has no uploaded cover.", "cover_file", 404);
+      }
+      res.setHeader("Content-Type", contentTypeForCover(name));
+      res.setHeader("Cache-Control", "no-cache");
+      res.sendFile(file, (err) => {
+        if (!err || res.headersSent) return;
+        next(err);
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/books/:id/pdf", (req, res, next) => {
+    try {
+      const file = bookPdfFile(db, req.params.id);
+      const base = path.basename(file);
+      res.setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(base)}`);
+      res.sendFile(file, (err) => {
+        if (!err || res.headersSent) return;
+        next(err);
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post(
+    "/api/books/:id/reading",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          page: z.number().int().positive(),
+          pageCount: z.number().int().positive(),
+        })
+        .parse(req.body);
+      res.json(recordReading(db, req.params.id, body.page, body.pageCount));
+    }),
+  );
+
+  app.get(
+    "/api/catalog/search",
+    asyncHandler(async (req, res) => {
+      const q = String(req.query.q ?? "").trim();
+      if (q.length < 2) {
+        throw new AppError("Enter a title, author, or ISBN.", "query", 400);
+      }
+      const hits = await searchCatalog(q);
+      res.json({
+        hits,
+        note:
+          "Catalog metadata is not a table of contents. Confirm the edition. If contents are unavailable, upload or paste a source.",
+      });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/import/paste",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          text: z.string().min(10),
+          consent: z.boolean().optional(),
+          useAi: z.boolean().optional(),
+        })
+        .parse(req.body);
+      const book = getBook(db, req.params.id);
+      const local = localOrEmptyOutline(body.text);
+      let outline = local;
+      let usedAi = false;
+      if (body.useAi) {
+        requireConsent(body);
+        if (!aiConfigured()) {
+          throw new AppError(
+            "Configure OpenRouter to enable AI. Tracking still works; paste a numbered contents list for extraction without a model.",
+            "missing_config",
+            400,
+          );
+        }
+        outline = filterGroundedOutline(await extractOutlineWithAi(body.text), body.text);
+        usedAi = true;
+      }
+      outline = enrichOutline(outline.length ? outline : local, body.text);
+      const provenanceLabel = usedAi
+        ? "Extracted from pasted text (OpenRouter)"
+        : "Extracted from pasted text";
+      const source = insertSource(db, {
+        bookId: book.id,
+        provenanceType: "pasted",
+        provenanceLabel,
+        text: body.text,
+        aiConsentAt: usedAi ? nowIso() : null,
+        outline,
+      });
+      res.json({
+        sourceId: source.id,
+        outline,
+        provenanceLabel,
+        usedAi,
+        needsConfirmation: true,
+        message:
+          outline.length === 0
+            ? "No chapter headings were found. Add titles in the preview, or paste a numbered contents list. Nothing was invented."
+            : "Review the chapter preview before saving.",
+      });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/import/pdf",
+    upload.single("file"),
+    asyncHandler(async (req, res) => {
+      const book = getBook(db, req.params.id);
+      if (!req.file) {
+        throw new AppError("Choose a PDF file.", "missing_file", 400);
+      }
+      const consent = String(req.body.consent ?? "") === "true";
+      const useAi = String(req.body.useAi ?? "") === "true";
+      const extracted = await extractPdfText(req.file.buffer, req.file.originalname);
+      const local = localOrEmptyOutline(extracted.text);
+      let outline = local;
+      let usedAi = false;
+      if (useAi) {
+        requireConsent({ consent });
+        if (!aiConfigured()) {
+          throw new AppError(
+            "Configure OpenRouter to enable AI. A numbered contents page can still be parsed without a model.",
+            "missing_config",
+            400,
+          );
+        }
+        outline = filterGroundedOutline(
+          await extractOutlineWithAi(extracted.text),
+          extracted.text,
+        );
+        usedAi = true;
+      }
+      outline = enrichOutline(outline.length ? outline : local, extracted.text);
+      const provenanceLabel = `Extracted from uploaded document ${req.file.originalname} (PDF pages 1–${extracted.pages})`;
+      const source = insertSource(db, {
+        bookId: book.id,
+        provenanceType: "uploaded",
+        provenanceLabel,
+        text: extracted.text,
+        filename: req.file.originalname,
+        pageLocator: `PDF pages 1–${extracted.pages}`,
+        aiConsentAt: usedAi ? nowIso() : null,
+        outline,
+      });
+      res.json({
+        sourceId: source.id,
+        outline,
+        provenanceLabel,
+        usedAi,
+        pages: extracted.pages,
+        needsConfirmation: true,
+      });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/import/retrieved",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          outline: z.array(OutlineChapterSchema),
+          url: z.string(),
+          edition: z.string().nullable().optional(),
+        })
+        .parse(req.body);
+      const book = getBook(db, req.params.id);
+      const text = body.outline
+        .map((c) => `${c.number ?? ""} ${c.title}`.trim())
+        .join("\n");
+      const source = insertSource(db, {
+        bookId: book.id,
+        provenanceType: "retrieved",
+        provenanceLabel: `Retrieved contents, ${body.url}${body.edition ? `, edition: ${body.edition}` : ""}`,
+        text,
+        url: body.url,
+        editionNote: body.edition ?? null,
+        outline: body.outline,
+      });
+      res.json({ sourceId: source.id, outline: body.outline });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/chapters/confirm",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          sourceId: z.string().uuid().nullable().optional(),
+          outline: z.array(OutlineChapterSchema),
+          merge: z.boolean().optional(),
+          dryRun: z.boolean().optional(),
+        })
+        .parse(req.body);
+      if (body.dryRun) {
+        const existing = listChapters(db, req.params.id);
+        res.json({
+          dryRun: true,
+          mergePreview: buildMergePreview(existing, body.outline),
+          chapters: existing,
+        });
+        return;
+      }
+      const result = confirmChapters(
+        db,
+        req.params.id,
+        body.sourceId ?? null,
+        body.outline,
+        Boolean(body.merge),
+      );
+      res.json(result);
+    }),
+  );
+
+  app.patch(
+    "/api/chapters/:id",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          selected: z.boolean().optional(),
+          printed: z.boolean().optional(),
+          progressPercent: z.number().min(0).max(100).optional(),
+          note: z.string().max(500).nullable().optional(),
+          pagePosition: z.string().max(80).nullable().optional(),
+        })
+        .parse(req.body);
+      const chapter = updateChapter(db, req.params.id, body);
+      res.json({ chapter, island: islandState(db) });
+    }),
+  );
+
+  app.post(
+    "/api/chapters/:id/complete",
+    asyncHandler(async (req, res) => {
+      const chapter = updateChapter(db, req.params.id, { progressPercent: 100 });
+      res.json({ chapter, island: islandState(db) });
+    }),
+  );
+
+  app.post(
+    "/api/chapters/:id/undo",
+    asyncHandler(async (req, res) => {
+      const chapter = undoLastProgress(db, req.params.id);
+      res.json({ chapter, island: islandState(db) });
+    }),
+  );
+
+  app.get("/api/print-queue", (_req, res) => {
+    res.json({
+      items: printQueue(db),
+      notice:
+        "This is a checklist of chapters you marked printed. Progress Island does not extract or print book pages.",
+    });
+  });
+
+  app.post(
+    "/api/books/:id/import/dismiss",
+    asyncHandler(async (req, res) => {
+      getBook(db, req.params.id);
+      dismissLatestSource(db, req.params.id);
+      res.json({ ok: true });
+    }),
+  );
+
+  app.post(
+    "/api/chapters/:id/library-excerpt",
+    asyncHandler(async (req, res) => {
+      const chapter = getChapter(db, req.params.id);
+      const saved = await chapterTextFromLibrary(db, chapter);
+      if (!saved) {
+        throw new AppError(
+          "Attach a PDF from your library folder before reading a chapter from it.",
+          "library_file",
+          400,
+        );
+      }
+      const updated = getChapter(db, chapter.id);
+      res.json({
+        characters: saved.text.length,
+        pdfPageStart: updated.pdfPageStart,
+        pdfPageEnd: updated.pdfPageEnd,
+        preview: saved.text.replace(/--- PDF page \d+ ---/g, " ").replace(/\s+/g, " ").trim().slice(0, 480),
+      });
+    }),
+  );
+
+  app.post(
+    "/api/chapters/:id/reviews/generate",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ consent: z.boolean().optional() }).parse(req.body ?? {});
+      requireConsent(body);
+      if (!aiConfigured()) {
+        throw new AppError(
+          "Configure OpenRouter to enable AI. Your progress is unchanged.",
+          "missing_config",
+          400,
+        );
+      }
+      const chapter = getChapter(db, req.params.id);
+      const book = getBook(db, chapter.bookId);
+      let text = chapterText(db, chapter);
+      let sourceId = chapter.sourceDocumentId;
+      if (book.libraryFilename) {
+        try {
+          const fromLibrary = await chapterTextFromLibrary(db, chapter);
+          if (fromLibrary) {
+            text = fromLibrary.text;
+            sourceId = fromLibrary.id;
+          }
+        } catch (error) {
+          if (!text || !isSubstantialChapter(text, chapter.title)) throw error;
+        }
+      }
+      if (!text || !isSubstantialChapter(text, chapter.title)) {
+        throw new AppError(
+          book.libraryFilename
+            ? "The attached PDF did not yield this chapter’s body text. Check the chapter title against the PDF, or paste the chapter."
+            : "This chapter has no supplied body text. Attach the book PDF from your library folder, or paste the chapter. A title is not enough.",
+          "missing_source",
+          400,
+        );
+      }
+      if (!sourceId) {
+        throw new AppError(
+          "Attach a source document before generating a review.",
+          "missing_source",
+          400,
+        );
+      }
+      const source = getSource(db, sourceId);
+      const hash = String(source.text_hash ?? "");
+      markStalePacks(db, chapter.id, hash);
+      const generated = await generateReviewPackWithAi({
+        chapterTitle: chapter.title,
+        chapterText: text,
+      });
+      const pack = saveReviewPack(db, {
+        chapterId: chapter.id,
+        sourceDocumentId: sourceId,
+        sourceHash: hash,
+        flashcards: generated.flashcards,
+        questions: generated.questions,
+      });
+      res.json({ pack });
+    }),
+  );
+
+  app.get(
+    "/api/chapters/:id/reviews",
+    asyncHandler(async (req, res) => {
+      const chapter = getChapter(db, req.params.id);
+      const book = getBook(db, chapter.bookId);
+      const text = chapterText(db, chapter);
+      res.json({
+        pack: refreshPackStale(db, req.params.id),
+        bookId: book.id,
+        libraryFilename: book.libraryFilename,
+        pdfPageStart: chapter.pdfPageStart,
+        hasChapterBody: Boolean(text && isSubstantialChapter(text, chapter.title)),
+      });
+    }),
+  );
+
+  app.patch(
+    "/api/reviews/:packId/items",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          kind: z.enum(["flashcard", "question"]),
+          id: z.string().min(1),
+          action: z.enum(["edit", "reject", "restore", "report"]),
+          front: z.string().optional(),
+          back: z.string().optional(),
+          prompt: z.string().optional(),
+          reportNote: z.string().max(500).nullable().optional(),
+        })
+        .parse(req.body);
+      const pack = updateReviewItem(db, req.params.packId, body);
+      res.json({ pack });
+    }),
+  );
+
+  app.post(
+    "/api/reviews/:packId/attempt",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ answers: z.record(z.string()) }).parse(req.body);
+      const result = scoreAttempt(db, req.params.packId, body.answers);
+      res.json({ ...result, island: islandState(db) });
+    }),
+  );
+
+  app.get("/api/backup", (_req, res) => {
+    res.json(exportBackup(db));
+  });
+
+  app.post(
+    "/api/backup/restore",
+    asyncHandler(async (req, res) => {
+      restoreBackup(db, req.body);
+      logActivity(db, "backup_restored", {});
+      res.json({ ok: true, island: islandState(db) });
+    }),
+  );
+
+  app.use(express.static(path.join(config.root, "client", "dist")));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api")) return next();
+    res.sendFile(path.join(config.root, "client", "dist", "index.html"), (err) => {
+      if (err) next();
+    });
+  });
+
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    if (err instanceof AppError) {
+      res.status(err.status).json({ error: err.message, code: err.code, details: err.details });
+      return;
+    }
+    if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+      res.status(400).json({
+        error: "PDF is larger than 8 MB. Paste a table of contents instead.",
+        code: "pdf_too_large",
+      });
+      return;
+    }
+    if (err instanceof z.ZodError) {
+      res.status(400).json({ error: "Invalid request.", code: "validation", details: err.flatten() });
+      return;
+    }
+    console.error(err);
+    res.status(500).json({ error: "Unexpected server error.", code: "internal" });
+  });
+
+  return app;
+}

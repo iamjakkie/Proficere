@@ -1,0 +1,546 @@
+[
+  {
+    "query": "Linear Estimation",
+    "title": "Linear Estimation",
+    "author": "Thomas Kailath, Ali H. Sayed, Babak Hassibi",
+    "edition": null,
+    "year": "2000",
+    "isbn": "9780130224648"
+  },
+  {
+    "query": "Linear Systems (Keileth)",
+    "title": "Linear Systems",
+    "author": "Thomas Kailath",
+    "edition": null,
+    "year": "1980",
+    "isbn": "9780135369616"
+  },
+  {
+    "query": "Tracking and Kalman FIltering Made easy",
+    "title": "Tracking and Kalman Filtering Made Easy",
+    "author": "Eli Brookner",
+    "edition": null,
+    "year": "1998",
+    "isbn": "9780471184072"
+  },
+  {
+    "query": "Kalman Filter: Introduction to State Estimation",
+    "title": "Kalman Filter: Introduction to State Estimation and Its Application for Embedded Systems",
+    "author": "Reiner Marchthaler, Sebastian Dingler",
+    "edition": null,
+    "year": "2026",
+    "isbn": "9783658503871"
+  },
+  {
+    "query": "SLAM handbook",
+    "title": "SLAM Handbook: From Localization and Mapping to Spatial Intelligence",
+    "author": "Luca Carlone, Ayoung Kim, Timothy Barfoot, Daniel Cremers, Frank Dellaert (eds.)",
+    "edition": null,
+    "year": "2026",
+    "isbn": "9781009531948"
+  },
+  {
+    "query": "Factor Graph for Robot Perception",
+    "title": "Factor Graphs for Robot Perception",
+    "author": "Frank Dellaert, Michael Kaess",
+    "edition": null,
+    "year": "2017",
+    "isbn": "9781680833263"
+  },
+  {
+    "query": "Multi-View Geometry Based Visual Perception and Control",
+    "title": "Multi-View Geometry Based Visual Perception and Control of Robotic Systems",
+    "author": "Jian Chen, Bingxi Jia, Kaixiang Zhang",
+    "edition": null,
+    "year": "2018",
+    "isbn": "9781138093805"
+  },
+  {
+    "query": "Multiple View Geometry",
+    "title": "Multiple View Geometry in Computer Vision",
+    "author": "Richard Hartley, Andrew Zisserman",
+    "edition": "2nd",
+    "year": "2004",
+    "isbn": "9780521540513"
+  },
+  {
+    "query": "Invitation to 3-D Vision: From Images to Geometric Models",
+    "title": "An Invitation to 3-D Vision: From Images to Geometric Models",
+    "author": "Yi Ma, Stefano Soatto, Jana Košecká, Shankar Sastry",
+    "edition": null,
+    "year": "2004",
+    "isbn": "9780387008936"
+  },
+  {
+    "query": "Handbook of Multisensor Data Fusion",
+    "title": "Handbook of Multisensor Data Fusion: Theory and Practice",
+    "author": "Martin E. Liggins, David L. Hall, James Llinas",
+    "edition": "2nd",
+    "year": "2008",
+    "isbn": "9781420053081"
+  },
+  {
+    "query": "Statistical Sensor Fusion",
+    "title": "Statistical Sensor Fusion",
+    "author": "Fredrik Gustafsson",
+    "edition": null,
+    "year": "2010",
+    "isbn": "9789144077321"
+  },
+  {
+    "query": "Data Fusion in Wireless Sensor Networks",
+    "title": "Data Fusion in Wireless Sensor Networks: A Statistical Signal Processing Perspective",
+    "author": "Davide Dardari, Marco Luise, Emanuela Falletti",
+    "edition": null,
+    "year": "2007",
+    "isbn": "9781849190688"
+  },
+  {
+    "query": "Behavior-Based Robotics",
+    "title": "Behavior-Based Robotics",
+    "author": "Ronald C. Arkin",
+    "edition": null,
+    "year": "1998",
+    "isbn": "9780262011655"
+  },
+  {
+    "query": "State Estimation for Robotics",
+    "title": "State Estimation for Robotics",
+    "author": "Timothy D. Barfoot",
+    "edition": "2nd",
+    "year": "2024",
+    "isbn": "9781009299893"
+  },
+  {
+    "query": "Optimal State Estimation: Kalman, H Infinity",
+    "title": "Optimal State Estimation: Kalman, H Infinity, and Nonlinear Approaches",
+    "author": "Dan Simon",
+    "edition": null,
+    "year": "2006",
+    "isbn": "9780471708582"
+  },
+  {
+    "query": "State Estimation in Practice",
+    "title": "State Estimation in Practice",
+    "author": null,
+    "edition": null,
+    "year": null,
+    "isbn": null
+  },
+  {
+    "query": "Acting, Planning, Learning,",
+    "title": "Acting, Planning, and Learning",
+    "author": "Malik Ghallab, Dana Nau, Paolo Traverso",
+    "edition": null,
+    "year": "2025",
+    "isbn": "9781009579346"
+  },
+  {
+    "query": "Numerical Linear Algebra",
+    "title": "Numerical Linear Algebra",
+    "author": "Lloyd N. Trefethen, David Bau III",
+    "edition": null,
+    "year": "1997",
+    "isbn": "9780898713619"
+  },
+  {
+    "query": "Numerical Linear Algebra: An Introduction",
+    "title": "Numerical Linear Algebra: An Introduction",
+    "author": "Holger Wendland",
+    "edition": null,
+    "year": "2017",
+    "isbn": "9781107147133"
+  },
+  {
+    "query": "Introduction to Autonomous Robots",
+    "title": "Introduction to Autonomous Robots: Mechanisms, Sensors, Actuators, and Algorithms",
+    "author": "Nikolaus Correll, Bradley Hayes, Christoffer Heckman, Alessandro Roncone",
+    "edition": null,
+    "year": "2022",
+    "isbn": "9780262047555"
+  },
+  {
+    "query": "Aided Navigation: GPS with High Rate Sensors",
+    "title": "Aided Navigation: GPS with High Rate Sensors",
+    "author": "Jay A. Farrell",
+    "edition": null,
+    "year": "2008",
+    "isbn": "9780071493291"
+  },
+  {
+    "query": "Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems, Second Edition",
+    "title": "Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems",
+    "author": "Paul D. Groves",
+    "edition": "2nd",
+    "year": "2013",
+    "isbn": "9781608070053"
+  },
+  {
+    "query": "Strapdown Inertial Navigation Technology",
+    "title": "Strapdown Inertial Navigation Technology",
+    "author": "David Titterton, John Weston",
+    "edition": "2nd",
+    "year": "2004",
+    "isbn": "9780863413582"
+  },
+  {
+    "query": "Data-Driven Science and Engineering",
+    "title": "Data-Driven Science and Engineering: Machine Learning, Dynamical Systems, and Control",
+    "author": "Steven L. Brunton, J. Nathan Kutz",
+    "edition": "2nd",
+    "year": "2022",
+    "isbn": "9781009089517"
+  },
+  {
+    "query": "Electronic Warfare Fundamentals",
+    "title": "Electronic Warfare Fundamentals",
+    "author": "U.S. Air Force (training publication)",
+    "edition": null,
+    "year": null,
+    "isbn": null
+  },
+  {
+    "query": "Electronic Warfare Signal Processing",
+    "title": "Electronic Warfare Signal Processing",
+    "author": null,
+    "edition": null,
+    "year": null,
+    "isbn": null
+  },
+  {
+    "query": "Engineering UAS Applications",
+    "title": "Engineering UAS Applications: Sensor Fusion, Machine Vision and Mission Management",
+    "author": "Jesus Garcia, José M. Molina, Daniel Amigo, Juan Pedro Llerena, David Sánchez Pedroche",
+    "edition": null,
+    "year": "2023",
+    "isbn": null
+  },
+  {
+    "query": "Fundamentals of Kalman Filtering: A Practical Approach",
+    "title": "Fundamentals of Kalman Filtering: A Practical Approach",
+    "author": "Paul Zarchan, Howard Musoff",
+    "edition": "4th",
+    "year": "2015",
+    "isbn": "9781624102769"
+  },
+  {
+    "query": "Inertial Navigation Systems with Geodetic Applications",
+    "title": "Inertial Navigation Systems with Geodetic Applications",
+    "author": "Christopher Jekeli",
+    "edition": "2nd",
+    "year": "2023",
+    "isbn": "9783110784213"
+  },
+  {
+    "query": "Infrared Thermal Imaging",
+    "title": "Infrared Thermal Imaging: Fundamentals, Research and Applications",
+    "author": "Michael Vollmer, Klaus-Peter Möllmann",
+    "edition": "2nd",
+    "year": "2018",
+    "isbn": "9783527413515"
+  },
+  {
+    "query": "Intelligent Autonomous Drones with Cognitive Deep Learning",
+    "title": "Intelligent Autonomous Drones with Cognitive Deep Learning: Build AI-Enabled Land Drones with the Raspberry Pi 4",
+    "author": "David Allen Blubaugh, Steven D. Harbour, Benjamin Sears, Michael J. Findler",
+    "edition": null,
+    "year": "2022",
+    "isbn": "9781484268025"
+  },
+  {
+    "query": "Intelligent Autonomy of UAVs",
+    "title": "Intelligent Autonomy of UAVs: Advanced Missions and Future Use",
+    "author": "Yasmina Bestaoui Sebbane",
+    "edition": null,
+    "year": "2018",
+    "isbn": "9781138309920"
+  },
+  {
+    "query": "Intelligent Systems - Fusion, Tracking and Control",
+    "title": "Intelligent Systems: Fusion, Tracking and Control",
+    "author": "Gee Wah Ng",
+    "edition": null,
+    "year": "2003",
+    "isbn": "9780863802775"
+  },
+  {
+    "query": "Introduction to Ultra Wideband for Wireless Communications",
+    "title": "Introduction to Ultra Wideband for Wireless Communications",
+    "author": "Homayoun Nikookar, Ramjee Prasad",
+    "edition": null,
+    "year": "2009",
+    "isbn": "9781402066320"
+  },
+  {
+    "query": "Linear Algebra for Localization",
+    "title": "Linear Algebra for Localization: Algorithms, Use Cases, and C++ Implementations",
+    "author": "Ahmed Al-Muraeb",
+    "edition": null,
+    "year": "2026",
+    "isbn": "9781041073345"
+  },
+  {
+    "query": "Mathematical Methods for Computer Vision, Robotics and Graphics",
+    "title": "Mathematical Methods for Computer Vision, Robotics, and Graphics",
+    "author": "Justin Solomon",
+    "edition": null,
+    "year": null,
+    "isbn": null
+  },
+  {
+    "query": "Mathematical Techniques in Multisensor Data Fusion",
+    "title": "Mathematical Techniques in Multisensor Data Fusion",
+    "author": "David L. Hall, Sonya A. H. McMullen",
+    "edition": "2nd",
+    "year": "2004",
+    "isbn": "9781580533355"
+  },
+  {
+    "query": "Multi-sensor Fusion for Autonomous Driving",
+    "title": "Multi-Sensor Fusion for Autonomous Driving",
+    "author": "Xibin Song, Dingfu Zhou, Jin Fang, Liangjun Zhang",
+    "edition": null,
+    "year": "2023",
+    "isbn": "9789819932795"
+  },
+  {
+    "query": "Multisensor Data Fusion and Machine Learning for Environmental Remote Sensing",
+    "title": "Multisensor Data Fusion and Machine Learning for Environmental Remote Sensing",
+    "author": "Ni-Bin Chang, Kaixu Bai",
+    "edition": null,
+    "year": "2018",
+    "isbn": "9781498774338"
+  },
+  {
+    "query": "Nonlinear Control of Robots and Unmanned Aerial Vehicles",
+    "title": "Nonlinear Control of Robots and Unmanned Aerial Vehicles: An Integrated Approach",
+    "author": "Ranjan Vepa",
+    "edition": null,
+    "year": "2016",
+    "isbn": "9781498767040"
+  },
+  {
+    "query": "Photogrammetric Computer Vision",
+    "title": "Photogrammetric Computer Vision: Statistics, Geometry, Orientation and Reconstruction",
+    "author": "Wolfgang Förstner, Bernhard P. Wrobel",
+    "edition": null,
+    "year": "2016",
+    "isbn": "9783319115498"
+  },
+  {
+    "query": "Probabilistic Robotics",
+    "title": "Probabilistic Robotics",
+    "author": "Sebastian Thrun, Wolfram Burgard, Dieter Fox",
+    "edition": null,
+    "year": "2005",
+    "isbn": "9780262201629"
+  },
+  {
+    "query": "Remote Sensing Image Fusion A practical guide",
+    "title": "Remote Sensing Image Fusion: A Practical Guide",
+    "author": "Christine Pohl, John van Genderen",
+    "edition": null,
+    "year": "2016",
+    "isbn": "9781498730020"
+  },
+  {
+    "query": "Sensor and Data Fusion A tool for information Assessment and Decision Making",
+    "title": "Sensor and Data Fusion: A Tool for Information Assessment and Decision Making",
+    "author": "Lawrence A. Klein",
+    "edition": "2nd",
+    "year": "2012",
+    "isbn": "9780819491336"
+  },
+  {
+    "query": "Sensor Fusion Approaches for Positioning, Navigation and Mapping",
+    "title": "Sensor Fusion Approaches for Positioning, Navigation, and Mapping",
+    "author": null,
+    "edition": null,
+    "year": null,
+    "isbn": null
+  },
+  {
+    "query": "Tightly-Coupled Image-Aided Inertial Navigation System via a Kalman Filter",
+    "title": "Tightly-Coupled Image-Aided Inertial Navigation System via a Kalman Filter",
+    "author": null,
+    "edition": null,
+    "year": null,
+    "isbn": null
+  },
+  {
+    "query": "UAV Networks and Communications",
+    "title": "UAV Networks and Communications",
+    "author": "Kamesh Namuduri, Serge Chaumette, Jae H. Kim, James P. G. Sterbenz (eds.)",
+    "edition": null,
+    "year": "2017",
+    "isbn": "9781107115308"
+  },
+  {
+    "query": "Uncertainty Theories and Multisensor Data Fusion",
+    "title": "Uncertainty Theories and Multisensor Data Fusion",
+    "author": "Alain Appriou",
+    "edition": null,
+    "year": "2014",
+    "isbn": "9781848213548"
+  },
+  {
+    "query": "Unmanned Aerial Vehicles Swarm for Protecting Smart Cities",
+    "title": "Unmanned Aerial Vehicles Swarm for Protecting Smart Cities: Technologies, Applications and Standards",
+    "author": "Mohamed Elhoseny, Xiaohui Yuan, Abdel-Badeeh M. Salem (eds.)",
+    "edition": null,
+    "year": "2022",
+    "isbn": null
+  },
+  {
+    "query": "Vision Based Mobile Robotics",
+    "title": "Vision Based Mobile Robotics: Mobile Robot Localization using Vision Sensors and Active Probabilistic Approaches",
+    "author": "Emanuele Frontoni",
+    "edition": null,
+    "year": "2012",
+    "isbn": "9783639511673"
+  },
+  {
+    "query": "AVIONICS NAVIGATION SYSTEMS",
+    "title": "Avionics Navigation Systems",
+    "author": "Myron Kayton, Walter R. Fried",
+    "edition": "2nd",
+    "year": "1997",
+    "isbn": "9780471547952"
+  },
+  {
+    "query": "Darka nd Magical Places - The neuroscience of Navigation",
+    "title": "Dark and Magical Places: The Neuroscience of Navigation",
+    "author": "Christopher Kemp",
+    "edition": null,
+    "year": "2022",
+    "isbn": "9781324005384"
+  },
+  {
+    "query": "Estimation with Applications To Tracking and Navigation",
+    "title": "Estimation with Applications to Tracking and Navigation: Theory, Algorithms and Software",
+    "author": "Yaakov Bar-Shalom, X. Rong Li, Thiagalingam Kirubarajan",
+    "edition": null,
+    "year": "2001",
+    "isbn": "9780471416555"
+  },
+  {
+    "query": "Fundamentals of Navigation and Inertial Sensors",
+    "title": "Fundamentals of Navigation and Inertial Sensors",
+    "author": "Amitava Bose, K. N. Bhat, Thomas Kurian",
+    "edition": null,
+    "year": "2014",
+    "isbn": "9788120342965"
+  },
+  {
+    "query": "Fundamentals of High accuracy Inertial Navigation",
+    "title": "Fundamentals of High Accuracy Inertial Navigation",
+    "author": "Averil B. Chatfield",
+    "edition": null,
+    "year": "1997",
+    "isbn": "9781563473340"
+  },
+  {
+    "query": "Fundamentals of Inertial navigation systems and aiding",
+    "title": "Fundamentals of Inertial Navigation Systems and Aiding",
+    "author": "Michael S. Braasch",
+    "edition": null,
+    "year": "2013",
+    "isbn": "9783642304651"
+  },
+  {
+    "query": "Global positioning systems, inertial navigation, and integration",
+    "title": "Global Positioning Systems, Inertial Navigation, and Integration",
+    "author": "Mohinder S. Grewal, Angus P. Andrews, Chris G. Bartone",
+    "edition": "3rd",
+    "year": "2013",
+    "isbn": "9781118447000"
+  },
+  {
+    "query": "Navigation Principles of positioning and guidance",
+    "title": "Navigation: Principles of Positioning and Guidance",
+    "author": "Bernhard Hofmann-Wellenhof, Klaus Legat, Manfred Wieser",
+    "edition": null,
+    "year": "2003",
+    "isbn": "9783211008287"
+  },
+  {
+    "query": "Nonlinear kalman filtering for multi-sensor navigation of unmanned aerial vehicles",
+    "title": "Nonlinear Kalman Filtering for Multi-Sensor Navigation of Unmanned Aerial Vehicles",
+    "author": "Jean-Philippe Condomines",
+    "edition": null,
+    "year": "2018",
+    "isbn": "9781786304193"
+  },
+  {
+    "query": "robot navigation from nature",
+    "title": "Robot Navigation from Nature: Simultaneous Localisation, Mapping, and Path Planning Based on Hippocampal Models",
+    "author": "Michael J. Milford",
+    "edition": null,
+    "year": "2008",
+    "isbn": "9783540775195"
+  },
+  {
+    "query": "supernavigators",
+    "title": "Supernavigators: Exploring the Wonders of How Animals Find Their Way",
+    "author": "David Barrie",
+    "edition": null,
+    "year": "2019",
+    "isbn": "9781615195374"
+  },
+  {
+    "query": "communication and localization in uwb sensor networks",
+    "title": "Communication and Localization in UWB Sensor Networks: A Joint Approach",
+    "author": "Heinrich Lücken",
+    "edition": null,
+    "year": "2013",
+    "isbn": null
+  },
+  {
+    "query": "uav swarm cooperation a networking perspective",
+    "title": "UAV Swarm Cooperation: A Networking Perspective",
+    "author": "Haipeng Yao, Tianle Mai",
+    "edition": null,
+    "year": "2026",
+    "isbn": "9783031964435"
+  },
+  {
+    "query": "advanced kalman filtering, least-squares and modeling",
+    "title": "Advanced Kalman Filtering, Least-Squares and Modeling: A Practical Handbook",
+    "author": "Bruce P. Gibbs",
+    "edition": null,
+    "year": "2011",
+    "isbn": "9780470529706"
+  },
+  {
+    "query": "data fusion mathematics - theory and practice",
+    "title": "Data Fusion Mathematics: Theory and Practice",
+    "author": "Jitendra R. Raol",
+    "edition": null,
+    "year": "2015",
+    "isbn": "9781138077065"
+  },
+  {
+    "query": "intuitive understanding of kalman filtering with matlab",
+    "title": "Intuitive Understanding of Kalman Filtering with MATLAB",
+    "author": "Armando Barreto, Malek Adjouadi, Francisco R. Ortega, Nonnarit O-larnnithipong",
+    "edition": null,
+    "year": "2020",
+    "isbn": "9781138543522"
+  },
+  {
+    "query": "spacecraft formation flying dynamics, control and navigation",
+    "title": "Spacecraft Formation Flying: Dynamics, Control and Navigation",
+    "author": "Kyle T. Alfriend, Srinivas R. Vadali, Pini Gurfil, Jonathan P. How, Louis S. Breger",
+    "edition": null,
+    "year": "2010",
+    "isbn": "9780750685337"
+  },
+  {
+    "query": "Behavior trees in robotics and ai",
+    "title": "Behavior Trees in Robotics and AI: An Introduction",
+    "author": "Michele Colledanchise, Petter Ögren",
+    "edition": null,
+    "year": "2018",
+    "isbn": "9781138593732"
+  }
+]
