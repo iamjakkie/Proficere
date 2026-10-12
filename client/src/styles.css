@@ -118,6 +118,15 @@ nav a.active,
   box-shadow: none;
 }
 
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn.is-busy:disabled {
+  cursor: progress;
+}
+
 .grid {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;
@@ -317,6 +326,11 @@ nav a.active,
   align-items: center;
 }
 
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+}
+
 input,
 textarea,
 select {
@@ -383,6 +397,12 @@ textarea {
   margin: 0;
   padding: 14px 18px;
   pointer-events: none;
+}
+
+.app-shell:has(.island-page) .brand {
+  text-shadow:
+    0 1px 0 rgba(255, 250, 240, 0.9),
+    0 0 10px rgba(255, 250, 240, 0.75);
 }
 
 .app-shell:has(.island-page) .topbar a,
@@ -491,6 +511,20 @@ textarea {
   margin: 0 0 8px;
 }
 
+.sky-time {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(255, 250, 240, 0.78);
+  color: #243428;
+  font-size: 13px;
+  pointer-events: none;
+}
+
 .view-hint {
   position: absolute;
   left: 50%;
@@ -591,6 +625,16 @@ textarea {
 .choice input {
   width: auto;
   margin-right: 8px;
+}
+
+.choice.right {
+  border-color: var(--good);
+  background: #e7f4ea;
+}
+
+.choice.wrong {
+  border-color: var(--danger);
+  background: #f8e8e8;
 }
 
 .passage {
@@ -758,6 +802,12 @@ textarea {
     top: auto;
     bottom: 52px;
     width: min(300px, calc(100vw - 32px));
+  }
+  .sky-time {
+    left: 16px;
+    right: auto;
+    bottom: 108px;
+    transform: none;
   }
 }
 

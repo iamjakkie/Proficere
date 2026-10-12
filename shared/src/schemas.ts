@@ -120,22 +120,61 @@ export const QuizChoiceSchema = z.object({
   text: z.string().min(1),
 });
 
-export const QuizQuestionSchema = z.object({
-  id: z.string(),
-  prompt: z.string().min(1),
-  choices: z.array(QuizChoiceSchema).min(2).max(6),
-  correctChoiceId: z.string(),
-  explanation: z.string().min(1),
-  passage: z.string().min(1),
-  locator: z.string().min(1),
-  rejected: z.boolean().optional(),
-  reportNote: z.string().nullable().optional(),
-});
+export const QuizQuestionSchema = z
+  .object({
+    id: z.string(),
+    /** Missing on packs written before tests had calculation items. Those are single-select. */
+    kind: z.enum(["single", "multi", "numeric"]).optional(),
+    prompt: z.string().min(1),
+    choices: z.array(QuizChoiceSchema).max(6).optional(),
+    correctChoiceId: z.string().optional(),
+    correctChoiceIds: z.array(z.string()).optional(),
+    /** Expected value for a calculation item. */
+    answer: z.string().optional(),
+    explanation: z.string().min(1),
+    passage: z.string().min(1),
+    locator: z.string().min(1),
+    rejected: z.boolean().optional(),
+    reportNote: z.string().nullable().optional(),
+  })
+  .superRefine((question, ctx) => {
+    if (question.kind === "numeric" || (question.answer && !(question.choices && question.choices.length >= 2) && question.kind !== "single" && question.kind !== "multi")) {
+      if (!question.answer?.trim()) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A calculation question needs an answer.", path: ["answer"] });
+      }
+      return;
+    }
+    const choices = question.choices ?? [];
+    if (choices.length < 2) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A select question needs at least two choices.", path: ["choices"] });
+      return;
+    }
+    const ids = new Set(choices.map((choice) => choice.id));
+    const multi = question.kind === "multi" || (question.correctChoiceIds?.length ?? 0) > 1;
+    if (multi) {
+      const correct = question.correctChoiceIds ?? [];
+      if (correct.length < 2 || correct.some((id) => !ids.has(id)) || correct.length >= choices.length) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "A multi-select question needs more than one correct choice, and at least one wrong choice.",
+          path: ["correctChoiceIds"],
+        });
+      }
+      return;
+    }
+    if (!question.correctChoiceId || !ids.has(question.correctChoiceId)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "The correct choice is missing.",
+        path: ["correctChoiceId"],
+      });
+    }
+  });
 export type QuizQuestion = z.infer<typeof QuizQuestionSchema>;
 
 export const ModelReviewPackSchema = z.object({
-  flashcards: z.array(FlashcardSchema).min(1).max(8),
-  questions: z.array(QuizQuestionSchema).min(1).max(6),
+  flashcards: z.array(FlashcardSchema).max(8).default([]),
+  questions: z.array(QuizQuestionSchema).min(1).max(8),
 });
 export type ModelReviewPack = z.infer<typeof ModelReviewPackSchema>;
 

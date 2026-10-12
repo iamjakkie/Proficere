@@ -6,6 +6,7 @@ import {
   OpenRouterErrorCode,
   OutlineChapterSchema,
   passageExistsInSource,
+  QuizQuestionSchema,
 } from "@progress-island/shared";
 import { z } from "zod";
 import { aiConfigured, config } from "./config.js";
@@ -65,7 +66,7 @@ export async function testOpenRouterConnection(): Promise<{
   return { ok: true, modelAvailable };
 }
 
-async function chatJson<T>(
+export async function chatJson<T>(
   schema: z.ZodType<T>,
   system: string,
   user: string,
@@ -112,13 +113,134 @@ async function chatJson<T>(
   const result = schema.safeParse(parsed);
   if (!result.success) {
     throw new AppError(
-      "The model response did not match the required schema.",
+      schemaMismatchMessage(result.error),
       OpenRouterErrorCode.validation,
       502,
       result.error.flatten(),
     );
   }
   return result.data;
+}
+
+function schemaMismatchMessage(error: z.ZodError): string {
+  const issues = error.issues
+    .slice(0, 3)
+    .map((issue) => `${issue.path.join(".") || "response"}: ${issue.message}`)
+    .join("; ");
+  return issues
+    ? `The model response did not match the required schema (${issues}).`
+    : "The model response did not match the required schema.";
+}
+
+/** Accept a test, or explain an empty one instead of a bare schema failure. */
+export function reviewPackFromModelJson(parsed: unknown): z.infer<typeof ModelReviewPackSchema> {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new AppError(
+      "The model response did not match the required schema.",
+      OpenRouterErrorCode.validation,
+      502,
+    );
+  }
+  const body = parsed as { questions?: unknown; note?: unknown };
+  const rawQuestions = asList(body.questions);
+  const parsedQuestions = uniqueQuestionIds(
+    rawQuestions
+      .map(coerceQuestion)
+      .filter((question): question is Record<string, unknown> => Boolean(question)),
+  ).map((question) => QuizQuestionSchema.safeParse(question));
+  const questions = parsedQuestions.filter((result) => result.success).map((result) => result.data);
+  if (questions.length > 0) {
+    return { flashcards: [], questions: questions.slice(0, 8) };
+  }
+  const note = typeof body.note === "string" ? body.note.trim() : "";
+  if (rawQuestions.length === 0) {
+    throw new AppError(
+      note || "The model did not return any test questions. Nothing was saved.",
+      OpenRouterErrorCode.validation,
+      502,
+    );
+  }
+  const failed = parsedQuestions.find((result) => !result.success);
+  throw new AppError(
+    failed && !failed.success ? schemaMismatchMessage(failed.error) : "The model response did not match the required schema.",
+    OpenRouterErrorCode.validation,
+    502,
+    failed && !failed.success ? failed.error.flatten() : undefined,
+  );
+}
+
+function uniqueQuestionIds(questions: Record<string, unknown>[]): Record<string, unknown>[] {
+  const used = new Set<string>();
+  return questions.map((question, index) => {
+    const requested = asText(question.id);
+    let id = requested || `q${index + 1}`;
+    if (used.has(id)) {
+      let n = index + 1;
+      id = `q${n}`;
+      while (used.has(id)) {
+        n += 1;
+        id = `q${n}`;
+      }
+    }
+    used.add(id);
+    return { ...question, id };
+  });
+}
+
+function asList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number") return String(value);
+  return "";
+}
+
+function coerceQuestion(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") return null;
+  const question = value as Record<string, unknown>;
+  const choices = asList(question.choices)
+    .map((choice, index) => {
+      if (typeof choice === "string" && choice.trim()) {
+        return { id: String.fromCharCode(97 + index), text: choice.trim() };
+      }
+      if (!choice || typeof choice !== "object") return null;
+      const item = choice as Record<string, unknown>;
+      const text = asText(item.text ?? item.label);
+      if (!text) return null;
+      return { id: asText(item.id) || String.fromCharCode(97 + index), text };
+    })
+    .filter((choice): choice is { id: string; text: string } => Boolean(choice));
+  const correctIds = [
+    ...asList(question.correctChoiceIds ?? question.correctAnswers).map(asText),
+    ...asText(question.correctChoiceId)
+      .split(",")
+      .map((part) => part.trim()),
+  ].filter(Boolean);
+  const uniqueCorrect = [...new Set(correctIds)];
+  const answer = asText(question.answer ?? question.expected ?? question.correctAnswer);
+  const requested = asText(question.kind).toLowerCase();
+  const kind =
+    requested === "numeric" || requested === "calculation" || requested === "number" || requested === "text"
+      ? "numeric"
+      : requested === "multi" || requested === "multiple" || requested === "multiselect"
+        ? "multi"
+        : uniqueCorrect.length > 1
+          ? "multi"
+          : answer && choices.length < 2
+            ? "numeric"
+            : "single";
+  const base = {
+    id: asText(question.id) || "question",
+    prompt: asText(question.prompt ?? question.question),
+    explanation: asText(question.explanation),
+    passage: asText(question.passage ?? question.quote),
+    locator: asText(question.locator) || "section",
+  };
+  if (kind === "numeric") return { ...base, kind, answer };
+  if (kind === "multi") return { ...base, kind, choices, correctChoiceIds: uniqueCorrect };
+  return { ...base, kind: "single", choices, correctChoiceId: uniqueCorrect[0] ?? "" };
 }
 
 const ExtractedOutlineSchema = z.object({
@@ -149,34 +271,41 @@ export async function generateReviewPackWithAi(input: {
       400,
     );
   }
-  const pack = await chatJson(
-    ModelReviewPackSchema,
-    `Create source-grounded study items from ONLY the supplied chapter text.
-Return JSON with:
-- flashcards: about 5 items {id, front, back, passage, locator}
-- questions: about 3 multiple-choice items {id, prompt, choices:[{id,text}], correctChoiceId, explanation, passage, locator}
+  const hasNumbers = /[=≈]|\d+\.\d+|\d+\s*\/\s*\d+/.test(input.chapterText);
+  const pack = reviewPackFromModelJson(
+    await chatJson(
+      z.unknown(),
+      `Write a closed-book test from ONLY the supplied chapter text. Do not write flashcards.
+Return JSON {"questions":[...]} with 6 questions when the text supports them.
+Each question is one of:
+- kind "single": one correct option. choices:[{id,text}] with 4 options, correctChoiceId
+- kind "multi": more than one correct option and at least one wrong option. correctChoiceIds is an array of the correct ids. The prompt must say to select every item that applies.
+- kind "numeric": the learner computes a value. No choices. answer is the number or a simple fraction such as "0.5" or "1/2", nothing else.
 Rules:
 - The text is one chapter body. Lines like "--- PDF page N ---" are page markers, not content.
-- Test explanations, distinctions, assumptions, and what fails when an assumption is dropped. Do not ask something that the chapter title alone answers.
-- If the chapter contains mathematics, keep that notation and include at least one item that uses it.
+- Prefer worked numbers, equations, and what changes when an assumption is dropped. Do not ask something the chapter title alone answers.
+- ${
+  hasNumbers
+    ? "The chapter contains numbers. At least two questions must be kind numeric, and each answer must follow from numbers in the passage by a direct calculation."
+    : "The chapter has no worked numbers. Do not invent a calculation. Use single and multi only."
+}
 - Every passage MUST be a verbatim excerpt of the prose (at least 12 characters) and must not include a page-marker line.
 - locator should be "PDF page N" when the passage sits under that marker, otherwise a short heading from the text.
+- explanation states why the answer is right, without adding facts from outside the text.
 - Do not use knowledge outside the supplied text.`,
-    `Chapter title: ${input.chapterTitle}\n\n${input.chapterText.slice(0, 24_000)}`,
+      `Chapter title: ${input.chapterTitle}\n\n${input.chapterText.slice(0, 24_000)}`,
+    ),
   );
 
-  const validCards = pack.flashcards.filter((c) =>
-    passageExistsInSource(c.passage, input.chapterText),
-  );
   const validQuestions = pack.questions.filter((q) =>
     passageExistsInSource(q.passage, input.chapterText),
   );
-  if (validCards.length < 1 || validQuestions.length < 1) {
+  if (validQuestions.length < 1) {
     throw new AppError(
       "Generated items were not grounded in the supplied chapter text and were rejected.",
       OpenRouterErrorCode.grounding,
       502,
     );
   }
-  return { flashcards: validCards, questions: validQuestions };
+  return { flashcards: [], questions: validQuestions };
 }

@@ -1,7 +1,18 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import type { IslandState, ReviewPack } from "@progress-island/shared";
+import { gradeAnswer, questionMode, type IslandState, type QuizQuestion, type ReviewPack } from "@progress-island/shared";
 import { api } from "../api";
+
+function expectedText(question: QuizQuestion): string {
+  const mode = questionMode(question);
+  if (mode === "numeric") return question.answer ?? "";
+  const ids =
+    mode === "multi" ? (question.correctChoiceIds ?? []) : question.correctChoiceId ? [question.correctChoiceId] : [];
+  return (question.choices ?? [])
+    .filter((choice) => ids.includes(choice.id))
+    .map((choice) => choice.text)
+    .join(" · ");
+}
 
 export function ReviewPage() {
   const { chapterId } = useParams();
@@ -17,14 +28,12 @@ export function ReviewPage() {
     island: IslandState;
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showPassages, setShowPassages] = useState(false);
   const [bookId, setBookId] = useState<string | null>(null);
   const [libraryFilename, setLibraryFilename] = useState<string | null>(null);
   const [hasChapterBody, setHasChapterBody] = useState(false);
+  const [willReadSite, setWillReadSite] = useState(false);
   const [excerptPreview, setExcerptPreview] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draftFront, setDraftFront] = useState("");
-  const [draftBack, setDraftBack] = useState("");
   const [draftPrompt, setDraftPrompt] = useState("");
   const [reportFor, setReportFor] = useState<string | null>(null);
   const [reportNote, setReportNote] = useState("");
@@ -35,11 +44,13 @@ export function ReviewPage() {
       bookId: string;
       libraryFilename: string | null;
       hasChapterBody: boolean;
+      willReadSite?: boolean;
     }>(`/api/chapters/${chapterId}/reviews`);
     setPack(data.pack);
     setBookId(data.bookId);
     setLibraryFilename(data.libraryFilename);
     setHasChapterBody(data.hasChapterBody);
+    setWillReadSite(Boolean(data.willReadSite));
   }
 
   useEffect(() => {
@@ -74,7 +85,9 @@ export function ReviewPage() {
       });
       setPack(data.pack);
       setHasChapterBody(true);
+      setWillReadSite(false);
       setResult(null);
+      setAnswers({});
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -99,7 +112,6 @@ export function ReviewPage() {
         body: JSON.stringify({ answers }),
       });
       setResult(data);
-      setShowPassages(true);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -127,13 +139,24 @@ export function ReviewPage() {
     }
   }
 
+  function toggleMulti(questionId: string, choiceId: string) {
+    setAnswers((current) => {
+      const selected = new Set((current[questionId] ?? "").split(",").filter(Boolean));
+      if (selected.has(choiceId)) selected.delete(choiceId);
+      else selected.add(choiceId);
+      return { ...current, [questionId]: [...selected].sort().join(",") };
+    });
+  }
+
+  const liveQuestions = pack?.questions.filter((question) => !question.rejected) ?? [];
+
   return (
     <div className="stack">
-      <h1>Review pack</h1>
+      <h1>Chapter test</h1>
       <p className="muted">
-        Passing these questions is practice, not mastery. Scoring happens on the server.
+        Pick one option, pick every option that applies, or type a calculated value. The key stays hidden
+        until you score the test. Scoring happens on the server.
       </p>
-      {error && <p className="banner danger">{error}</p>}
       {pack?.stale && (
         <p className="banner">This pack is stale because the source text changed. Regenerate it.</p>
       )}
@@ -142,9 +165,11 @@ export function ReviewPage() {
         <p className="muted">
           {libraryFilename
             ? `Attached PDF: ${libraryFilename}. Generating reads this chapter from that file, then sends the excerpt to OpenRouter.`
-            : hasChapterBody
-              ? "A chapter excerpt is already saved. Generating sends that text to OpenRouter."
-              : "Attach the book PDF from your library folder, or paste the chapter. A title is not enough."}
+            : willReadSite
+              ? "Only the section list is saved. Generating reads this section from the linked site, then sends that text to OpenRouter."
+              : hasChapterBody
+                ? "A chapter excerpt is already saved. Generating sends that text to OpenRouter."
+                : "Attach the book PDF from your library folder, or paste the chapter. A title is not enough."}
         </p>
         <label>
           <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> I
@@ -162,112 +187,116 @@ export function ReviewPage() {
           </div>
         )}
         {excerptPreview && <p className="passage">{excerptPreview}</p>}
-        <button className="btn primary" disabled={busy || !consent} onClick={() => void generate()}>
-          Generate review from this chapter
+        {error && (
+          <p className="banner danger" role="alert">
+            {error}
+          </p>
+        )}
+        <button
+          className={`btn primary${busy ? " is-busy" : ""}`}
+          type="button"
+          aria-busy={busy}
+          disabled={busy || !consent}
+          onClick={() => void generate()}
+        >
+          {busy ? "Writing the test…" : "Generate test from this chapter"}
         </button>
+        {busy && (
+          <p className="banner" role="status">
+            {willReadSite
+              ? "Opening this section from the linked site, then writing the test. This usually takes a few seconds."
+              : "Writing the test from this chapter. This usually takes a few seconds."}
+          </p>
+        )}
       </div>
 
-      {pack && (
-        <>
-          <div className="card stack">
-            <h2>Flashcards</h2>
-            {pack.flashcards.map((card) => (
-              <article key={card.id} className={card.rejected ? "muted" : undefined}>
-                {editingId === card.id ? (
-                  <div className="stack">
-                    <input value={draftFront} onChange={(event) => setDraftFront(event.target.value)} />
-                    <textarea value={draftBack} onChange={(event) => setDraftBack(event.target.value)} />
-                    <button
-                      className="btn primary"
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        void mutate({
-                          kind: "flashcard",
-                          id: card.id,
-                          action: "edit",
-                          front: draftFront,
-                          back: draftBack,
-                        })
-                      }
-                    >
-                      Save card
-                    </button>
-                  </div>
+      {pack && liveQuestions.length > 0 && (
+        <form className="card stack" onSubmit={(event) => void submit(event)}>
+          <h2>Test</h2>
+          {liveQuestions.map((question, index) => {
+            const mode = questionMode(question);
+            const picked = new Set((answers[question.id] ?? "").split(",").filter(Boolean));
+            const correctIds = new Set(
+              mode === "multi"
+                ? (question.correctChoiceIds ?? [])
+                : question.correctChoiceId
+                  ? [question.correctChoiceId]
+                  : [],
+            );
+            const marked = Boolean(result);
+            const right = marked && gradeAnswer(question, answers[question.id]);
+            return (
+              <fieldset key={question.id} style={{ border: "none", padding: 0 }}>
+                <legend>
+                  {index + 1}. {question.prompt}
+                </legend>
+                {mode === "multi" && <p className="muted">Select every item that applies.</p>}
+                {mode === "numeric" ? (
+                  <input
+                    value={answers[question.id] ?? ""}
+                    inputMode="decimal"
+                    disabled={marked}
+                    placeholder="Your value"
+                    onChange={(event) =>
+                      setAnswers((current) => ({ ...current, [question.id]: event.target.value }))
+                    }
+                  />
                 ) : (
+                  (question.choices ?? []).map((choice) => (
+                    <label
+                      className={`choice${marked && correctIds.has(choice.id) ? " right" : ""}${
+                        marked && picked.has(choice.id) && !correctIds.has(choice.id) ? " wrong" : ""
+                      }`}
+                      key={choice.id}
+                    >
+                      <input
+                        type={mode === "multi" ? "checkbox" : "radio"}
+                        name={question.id}
+                        checked={picked.has(choice.id)}
+                        disabled={marked}
+                        onChange={() => {
+                          if (mode === "multi") toggleMulti(question.id, choice.id);
+                          else setAnswers((current) => ({ ...current, [question.id]: choice.id }));
+                        }}
+                      />
+                      {choice.text}
+                    </label>
+                  ))
+                )}
+                {marked && (
                   <>
-                    <strong>{card.front}</strong>
-                    <p>{card.back}</p>
+                    <p className={right ? "banner good" : "banner danger"}>
+                      {right ? "Correct." : `Answer: ${expectedText(question)}`} {question.explanation}
+                    </p>
+                    <p className="passage">
+                      {question.locator}: {question.passage}
+                    </p>
                   </>
                 )}
-                {card.rejected && <p>Rejected. It stays out of study until you restore it.</p>}
-                {card.reportNote && <p className="muted">Reported: {card.reportNote}</p>}
-                {showPassages && (
-                  <p className="passage">
-                    {card.locator}: {card.passage}
-                  </p>
-                )}
+                {question.reportNote && <p className="muted">Reported: {question.reportNote}</p>}
                 <div className="row">
                   <button
                     className="btn ghost"
                     type="button"
                     onClick={() => {
-                      setEditingId(card.id);
-                      setDraftFront(card.front);
-                      setDraftBack(card.back);
+                      setEditingId(question.id);
+                      setDraftPrompt(question.prompt);
                     }}
                   >
-                    Edit
+                    Edit prompt
                   </button>
                   <button
                     className="btn ghost"
                     type="button"
-                    onClick={() =>
-                      void mutate({
-                        kind: "flashcard",
-                        id: card.id,
-                        action: card.rejected ? "restore" : "reject",
-                      })
-                    }
+                    onClick={() => void mutate({ kind: "question", id: question.id, action: "reject" })}
                   >
-                    {card.rejected ? "Restore" : "Reject"}
+                    Reject
                   </button>
-                  <button className="btn ghost" type="button" onClick={() => setReportFor(card.id)}>
+                  <button className="btn ghost" type="button" onClick={() => setReportFor(question.id)}>
                     Report
                   </button>
                 </div>
-                {reportFor === card.id && (
-                  <div className="stack">
-                    <input
-                      value={reportNote}
-                      onChange={(event) => setReportNote(event.target.value)}
-                      placeholder="What is wrong with this item?"
-                    />
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() =>
-                        void mutate({
-                          kind: "flashcard",
-                          id: card.id,
-                          action: "report",
-                          reportNote,
-                        })
-                      }
-                    >
-                      Save report
-                    </button>
-                  </div>
-                )}
-              </article>
-            ))}
-          </div>
-          <form className="card stack" onSubmit={(e) => void submit(e)}>
-            <h2>Quiz</h2>
-            {pack.questions.filter((q) => !q.rejected).map((q) => (
-              <fieldset key={q.id} style={{ border: "none", padding: 0 }}>
-                <legend>{q.prompt}</legend>
-                {editingId === q.id ? (
+                {editingId === question.id && (
                   <div className="stack">
                     <input value={draftPrompt} onChange={(event) => setDraftPrompt(event.target.value)} />
                     <button
@@ -276,7 +305,7 @@ export function ReviewPage() {
                       onClick={() =>
                         void mutate({
                           kind: "question",
-                          id: q.id,
+                          id: question.id,
                           action: "edit",
                           prompt: draftPrompt,
                         })
@@ -285,49 +314,8 @@ export function ReviewPage() {
                       Save prompt
                     </button>
                   </div>
-                ) : null}
-                {q.choices.map((choice) => (
-                  <label className="choice" key={choice.id}>
-                    <input
-                      type="radio"
-                      name={q.id}
-                      checked={answers[q.id] === choice.id}
-                      onChange={() => setAnswers((a) => ({ ...a, [q.id]: choice.id }))}
-                    />
-                    {choice.text}
-                  </label>
-                ))}
-                {showPassages && (
-                  <p className="passage">
-                    {q.locator}: {q.passage}
-                    <br />
-                    {q.explanation}
-                  </p>
                 )}
-                <div className="row">
-                  <button
-                    className="btn ghost"
-                    type="button"
-                    onClick={() => {
-                      setEditingId(q.id);
-                      setDraftPrompt(q.prompt);
-                    }}
-                  >
-                    Edit prompt
-                  </button>
-                  <button
-                    className="btn ghost"
-                    type="button"
-                    onClick={() => void mutate({ kind: "question", id: q.id, action: "reject" })}
-                  >
-                    Reject
-                  </button>
-                  <button className="btn ghost" type="button" onClick={() => setReportFor(q.id)}>
-                    Report
-                  </button>
-                </div>
-                {q.reportNote && <p className="muted">Reported: {q.reportNote}</p>}
-                {reportFor === q.id && (
+                {reportFor === question.id && (
                   <div className="stack">
                     <input
                       value={reportNote}
@@ -340,7 +328,7 @@ export function ReviewPage() {
                       onClick={() =>
                         void mutate({
                           kind: "question",
-                          id: q.id,
+                          id: question.id,
                           action: "report",
                           reportNote,
                         })
@@ -351,27 +339,26 @@ export function ReviewPage() {
                   </div>
                 )}
               </fieldset>
-            ))}
-            {pack.questions.filter((q) => q.rejected).map((q) => (
-              <p key={q.id} className="muted">
-                Rejected question: {q.prompt}{" "}
+            );
+          })}
+          {pack.questions
+            .filter((question) => question.rejected)
+            .map((question) => (
+              <p key={question.id} className="muted">
+                Rejected: {question.prompt}{" "}
                 <button
                   className="btn ghost"
                   type="button"
-                  onClick={() => void mutate({ kind: "question", id: q.id, action: "restore" })}
+                  onClick={() => void mutate({ kind: "question", id: question.id, action: "restore" })}
                 >
                   Restore
                 </button>
               </p>
             ))}
-            <button className="btn primary" disabled={busy} type="submit">
-              Score on server
-            </button>
-          </form>
-          <button className="btn ghost" onClick={() => setShowPassages((v) => !v)}>
-            {showPassages ? "Hide" : "Inspect"} source passages
+          <button className="btn primary" disabled={busy || Boolean(result)} type="submit">
+            {busy ? "Scoring…" : "Score the test"}
           </button>
-        </>
+        </form>
       )}
 
       {result && (

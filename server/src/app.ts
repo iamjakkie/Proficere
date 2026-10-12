@@ -6,12 +6,17 @@ import path from "node:path";
 import { z } from "zod";
 import {
   AppError,
+  hasProse,
   isSubstantialChapter,
   FIXTURE_AUTHOR,
   FIXTURE_BOOK_TITLE,
   FIXTURE_SOURCE,
   OutlineChapterSchema,
   enrichOutline,
+  assessmentLabel,
+  assessmentLabelText,
+  ProjectProposalSchema,
+  validateVerificationPlan,
 } from "@progress-island/shared";
 import { aiConfigured, config } from "./config.js";
 import type { Db } from "./db.js";
@@ -42,6 +47,35 @@ import {
   getAiStatus,
   testOpenRouterConnection,
 } from "./openrouter.js";
+import { fetchSectionFromSite } from "./site-chapter.js";
+import { reviewAnswersWithAi, reviewSubmissionWithAi, suggestProjectsWithAi } from "./project-ai.js";
+import {
+  acceptProposal,
+  addSubmission,
+  approveProject,
+  buildSuggestionContext,
+  dismissProject,
+  dismissSuggestion,
+  findBatch,
+  findReview,
+  finishProject,
+  focusedProject,
+  getProject,
+  getReview,
+  getSubmission,
+  latestBatch,
+  listProjects,
+  listSubmissions,
+  listVersions,
+  objectiveResultsFor,
+  projectOptions,
+  reopenForRevision,
+  resumeProject,
+  saveAnswers,
+  saveBatch,
+  saveReview,
+  updateDraft,
+} from "./project-store.js";
 import {
   addCategory,
   chapterText,
@@ -79,6 +113,7 @@ import {
   reorderBooks,
   restoreBackup,
   saveReviewPack,
+  saveWebExcerpt,
   scoreAttempt,
   setBookCover,
   undoLastProgress,
@@ -97,6 +132,19 @@ function asyncHandler(
   return (req: Request, res: Response, next: NextFunction) => {
     void fn(req, res, next).catch(next);
   };
+}
+
+function projectLabelText(label: string): string {
+  if (
+    label === "verified" ||
+    label === "ai_reviewed" ||
+    label === "needs_revision" ||
+    label === "operational_failure" ||
+    label === "unverified"
+  ) {
+    return assessmentLabelText(label);
+  }
+  return assessmentLabelText("unverified");
 }
 
 function requireConsent(body: { consent?: boolean }): void {
@@ -703,6 +751,20 @@ export function createApp(db: Db): Express {
           400,
         );
       }
+      if (!hasProse(text)) {
+        if (book.catalogUrl && !book.libraryFilename) {
+          const fetched = await fetchSectionFromSite(book.catalogUrl, chapter.title);
+          const saved = saveWebExcerpt(db, chapter, fetched);
+          text = saved.text;
+          sourceId = saved.id;
+        } else {
+          throw new AppError(
+            "This chapter only has a heading list, not the section text. Paste the chapter or attach the PDF before generating a review.",
+            "missing_source",
+            400,
+          );
+        }
+      }
       if (!sourceId) {
         throw new AppError(
           "Attach a source document before generating a review.",
@@ -734,12 +796,14 @@ export function createApp(db: Db): Express {
       const chapter = getChapter(db, req.params.id);
       const book = getBook(db, chapter.bookId);
       const text = chapterText(db, chapter);
+      const prose = Boolean(text && hasProse(text));
       res.json({
         pack: refreshPackStale(db, req.params.id),
         bookId: book.id,
         libraryFilename: book.libraryFilename,
         pdfPageStart: chapter.pdfPageStart,
-        hasChapterBody: Boolean(text && isSubstantialChapter(text, chapter.title)),
+        hasChapterBody: prose,
+        willReadSite: Boolean(!prose && book.catalogUrl && !book.libraryFilename),
       });
     }),
   );
@@ -769,6 +833,290 @@ export function createApp(db: Db): Express {
       const body = z.object({ answers: z.record(z.string()) }).parse(req.body);
       const result = scoreAttempt(db, req.params.packId, body.answers);
       res.json({ ...result, island: islandState(db) });
+    }),
+  );
+
+  app.get("/api/projects/options", (_req, res) => {
+    res.json({
+      books: projectOptions(db),
+      focused: focusedProject(db),
+      projects: listProjects(db),
+      batch: latestBatch(db),
+    });
+  });
+
+  app.get(
+    "/api/projects/:id",
+    asyncHandler(async (req, res) => {
+      const project = getProject(db, req.params.id);
+      const submissions = listSubmissions(db, project.id);
+      res.json({
+        project,
+        versions: listVersions(db, project.id),
+        submissions,
+        reviews: submissions.map((submission) => findReview(db, submission.id)).filter(Boolean),
+        plan: validateVerificationPlan(project.brief.criteria),
+      });
+    }),
+  );
+
+  app.post(
+    "/api/projects/suggestions",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          consent: z.boolean().optional(),
+          chapterIds: z.array(z.string().uuid()).min(1).max(6),
+          goal: z.string().max(300).optional(),
+          hours: z.number().positive().max(40).nullable().optional(),
+          output: z.string().max(200).optional(),
+          tools: z.string().max(200).optional(),
+          instruction: z.string().max(500).optional(),
+          refresh: z.boolean().optional(),
+        })
+        .parse(req.body ?? {});
+      requireConsent(body);
+      if (!aiConfigured()) {
+        throw new AppError("Configure OpenRouter to enable AI. Your progress is unchanged.", "missing_config", 400);
+      }
+      const context = buildSuggestionContext(db, {
+        chapterIds: body.chapterIds,
+        goal: body.goal ?? "",
+        hours: body.hours ?? null,
+        output: body.output ?? "",
+        tools: body.tools ?? "",
+        instruction: body.instruction ?? "",
+      });
+      if (!body.refresh) {
+        const existing = findBatch(db, context.hash);
+        if (existing) {
+          res.json({ batch: existing, reused: true });
+          return;
+        }
+      }
+      let proposals;
+      try {
+        proposals = await suggestProjectsWithAi(context.packet, context.corpus);
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        throw new AppError(
+          "The model did not return a usable project suggestion. Nothing was started.",
+          "validation",
+          502,
+        );
+      }
+      const batch = saveBatch(
+        db,
+        context.hash,
+        {
+          chapterIds: body.chapterIds,
+          goal: body.goal ?? "",
+          hours: body.hours ?? null,
+          output: body.output ?? "",
+          tools: body.tools ?? "",
+          instruction: body.instruction ?? "",
+        },
+        proposals,
+      );
+      res.json({ batch, reused: false });
+    }),
+  );
+
+  app.post(
+    "/api/projects/dismiss-suggestion",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ title: z.string().min(1), reason: z.string().min(3).max(500) }).parse(req.body);
+      dismissSuggestion(db, body.title, body.reason);
+      res.json({ ok: true });
+    }),
+  );
+
+  app.post(
+    "/api/projects",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          batchId: z.string().uuid(),
+          proposalId: z.string().min(1),
+          setAside: z.boolean().optional(),
+        })
+        .parse(req.body);
+      const project = acceptProposal(db, body.batchId, body.proposalId, Boolean(body.setAside));
+      res.status(201).json({ project, plan: validateVerificationPlan(project.brief.criteria) });
+    }),
+  );
+
+  app.patch(
+    "/api/projects/:id",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ brief: ProjectProposalSchema }).parse(req.body);
+      const project = updateDraft(db, req.params.id, body.brief);
+      res.json({ project, plan: validateVerificationPlan(project.brief.criteria) });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/dismiss",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ reason: z.string().min(3).max(500) }).parse(req.body);
+      res.json({ project: dismissProject(db, req.params.id, body.reason) });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/resume",
+    asyncHandler(async (req, res) => {
+      res.json({ project: resumeProject(db, req.params.id) });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/revise",
+    asyncHandler(async (req, res) => {
+      res.json({ project: reopenForRevision(db, req.params.id) });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/approve",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ assessmentMode: z.enum(["objective", "ai_reviewed"]) }).parse(req.body);
+      const version = approveProject(db, req.params.id, body.assessmentMode);
+      res.json({ version, project: getProject(db, req.params.id) });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/submissions",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          explanation: z.string().max(8000),
+          assumptions: z.string().max(4000),
+          deliverable: z.string().max(20000),
+          prediction: z.string().max(2000).nullable().optional(),
+        })
+        .parse(req.body);
+      const submission = addSubmission(db, req.params.id, {
+        explanation: body.explanation,
+        assumptions: body.assumptions,
+        deliverable: body.deliverable,
+        prediction: body.prediction ?? null,
+      });
+      res.status(201).json({ submission });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/submissions/:submissionId/verify",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ consent: z.boolean().optional() }).parse(req.body ?? {});
+      requireConsent(body);
+      const submission = getSubmission(db, req.params.submissionId);
+      if (submission.projectId !== req.params.id) {
+        throw new AppError("Submission not found.", "not_found", 404);
+      }
+      const existing = findReview(db, submission.id);
+      if (existing && existing.label !== "operational_failure") {
+        res.json({ review: existing, labelText: projectLabelText(existing.label), reused: true });
+        return;
+      }
+      const version = listVersions(db, submission.projectId).find((item) => item.id === submission.versionId);
+      if (!version) {
+        throw new AppError("This submission is missing its frozen brief version.", "version_mismatch", 409);
+      }
+      const objective = objectiveResultsFor(version, submission.artifacts);
+      const runnerFailed = objective.some((item) => item.operational);
+      if (!aiConfigured()) {
+        const review = saveReview(db, {
+          submissionId: submission.id,
+          versionId: version.id,
+          objective,
+          reasoning: [],
+          questions: [],
+          label: "operational_failure",
+          nextAction: "Configure OpenRouter, then run the review again. The objective rows above are unchanged.",
+          operational: { message: "The reasoning review did not run because OpenRouter is not configured." },
+        });
+        res.json({ review, labelText: projectLabelText("operational_failure") });
+        return;
+      }
+      try {
+        const reviewed = await reviewSubmissionWithAi({
+          brief: version.brief,
+          objective,
+          submission: submission.artifacts,
+        });
+        const label = assessmentLabel({
+          assessmentMode: version.assessmentMode,
+          objective,
+          reasoning: reviewed.reasoning,
+          operational: runnerFailed,
+        });
+        const nextAction =
+          reviewed.questions.length < 2
+            ? "The reasoning review did not include enough questions about this submission. Run the review again before treating it as complete."
+            : reviewed.nextAction;
+        const review = saveReview(db, {
+          submissionId: submission.id,
+          versionId: version.id,
+          objective,
+          reasoning: reviewed.reasoning,
+          questions: reviewed.questions,
+          label,
+          nextAction,
+          operational: runnerFailed
+            ? { message: "A checker could not run. That is not evidence the solution is wrong." }
+            : null,
+        });
+        res.json({ review, labelText: projectLabelText(label) });
+      } catch (error) {
+        const message = error instanceof AppError ? error.message : "The reasoning review did not finish.";
+        const review = saveReview(db, {
+          submissionId: submission.id,
+          versionId: version.id,
+          objective,
+          reasoning: [],
+          questions: [],
+          label: "operational_failure",
+          nextAction: "Run the review again. This failure does not mean the submission is wrong.",
+          operational: { message },
+        });
+        res.json({ review, labelText: projectLabelText("operational_failure") });
+      }
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/reviews/:reviewId/answers",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          consent: z.boolean().optional(),
+          answers: z.record(z.string().max(2000)),
+        })
+        .parse(req.body);
+      requireConsent(body);
+      const review = getReview(db, req.params.reviewId);
+      const submission = getSubmission(db, review.submissionId);
+      if (submission.projectId !== req.params.id) throw new AppError("Review not found.", "not_found", 404);
+      if (!aiConfigured()) {
+        throw new AppError("Configure OpenRouter to review answers. Objective results stay as they are.", "missing_config", 400);
+      }
+      const answerReview = await reviewAnswersWithAi({
+        questions: review.questions,
+        answers: body.answers,
+        submission: submission.artifacts,
+      });
+      const saved = saveAnswers(db, review.id, body.answers, answerReview);
+      res.json({ review: saved });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/finish",
+    asyncHandler(async (req, res) => {
+      res.json({ project: finishProject(db, req.params.id) });
     }),
   );
 

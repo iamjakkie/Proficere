@@ -1,6 +1,7 @@
 export * from "./schemas.js";
 export * from "./progress.js";
 export * from "./schedule.js";
+export * from "./quiz.js";
 export * from "./grounding.js";
 export * from "./rewards.js";
 export * from "./fixture.js";
@@ -10,3 +11,4 @@ export * from "./chapter-text.js";
 export * from "./trees.js";
 export * from "./categories.js";
 export * from "./reading.js";
+export * from "./projects.js";

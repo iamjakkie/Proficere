@@ -139,6 +139,74 @@ CREATE TABLE activity_log (
       rows.forEach((row, index) => update.run(index, row.id));
     },
   },
+  {
+    version: 5,
+    sql: `
+CREATE TABLE project_batches (
+  id TEXT PRIMARY KEY,
+  context_hash TEXT NOT NULL,
+  request_json TEXT NOT NULL,
+  proposals_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE project_dismissals (
+  id TEXT PRIMARY KEY,
+  proposal_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE projects (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT,
+  proposal_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  brief_json TEXT NOT NULL,
+  dismiss_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE project_versions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  version_number INTEGER NOT NULL,
+  brief_json TEXT NOT NULL,
+  plan_json TEXT NOT NULL,
+  source_snapshot_json TEXT NOT NULL,
+  assessment_mode TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, version_number)
+);
+
+CREATE TABLE project_submissions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  version_id TEXT NOT NULL,
+  submission_number INTEGER NOT NULL,
+  artifacts_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  UNIQUE(project_id, submission_number)
+);
+
+CREATE TABLE project_reviews (
+  id TEXT PRIMARY KEY,
+  submission_id TEXT NOT NULL,
+  version_id TEXT NOT NULL,
+  objective_json TEXT NOT NULL,
+  reasoning_json TEXT,
+  questions_json TEXT NOT NULL,
+  answer_json TEXT,
+  answer_review_json TEXT,
+  label TEXT NOT NULL,
+  next_action TEXT,
+  operational_json TEXT,
+  created_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 export type Db = Database.Database;

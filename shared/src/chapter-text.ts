@@ -10,6 +10,14 @@ export function isSubstantialChapter(text: string, title?: string): boolean {
   return body.replace(/\s+/g, " ").trim().length >= MIN_BODY_CHARS;
 }
 
+/** A heading list has length, but it has no sentence the model can quote. */
+export function hasProse(text: string): boolean {
+  const body = text.replace(/--- PDF page \d+ ---/g, " ");
+  const sentences = body.match(/[^.!?\n]{15,}[.!?]/g) ?? [];
+  if (sentences.some((sentence) => sentence.trim().split(/\s+/).length >= 8)) return true;
+  return body.split("\n").some((line) => line.trim().length >= 160);
+}
+
 export function sliceLongestChapter(
   text: string,
   title: string,

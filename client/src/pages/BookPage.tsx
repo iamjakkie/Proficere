@@ -317,6 +317,20 @@ export function BookPage() {
               </Link>
             </p>
           )}
+          {book.catalogUrl && (
+            <p>
+              <a className="btn" href={book.catalogUrl} target="_blank" rel="noreferrer">
+                Open site
+              </a>
+            </p>
+          )}
+          {chapters.length > 0 && (
+            <p>
+              <Link className="btn" to={`/projects?book=${book.id}`}>
+                Suggest a project
+              </Link>
+            </p>
+          )}
           {book.identifiers.readPdfPage && book.identifiers.pdfPageCount && (
             <p className="muted">
               Tracked through PDF page {book.identifiers.readPdfPage} of {book.identifiers.pdfPageCount}.
@@ -419,6 +433,9 @@ export function BookPage() {
                   Review pack
                 </Link>
               )}
+              <Link className="btn" to={`/projects?book=${book.id}&chapters=${chapter.id}`}>
+                Use in a project
+              </Link>
             </div>
           </div>
           <div className="stack">

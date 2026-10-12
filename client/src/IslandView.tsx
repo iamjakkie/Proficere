@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import type { BookCategory, IslandTree } from "@progress-island/shared";
 import { DEFAULT_TREE_TYPE, bookCategory } from "@progress-island/shared";
 import * as THREE from "three";
+import { createIslandSky } from "./islandSky";
 
 function hasWebGL(): boolean {
   try {
@@ -46,6 +47,22 @@ function surfaceY(x: number, z: number): number {
 
 type Spot = { x: number; y: number; z: number };
 
+const treeMaterials = new Map<number, THREE.MeshLambertMaterial>();
+
+function treeMaterial(color: number): THREE.MeshLambertMaterial {
+  const cached = treeMaterials.get(color);
+  if (cached) return cached;
+  const material = new THREE.MeshLambertMaterial({ color, emissive: color, emissiveIntensity: 0 });
+  treeMaterials.set(color, material);
+  return material;
+}
+
+/** Leaves and trunks emit their own color once the sun is down. */
+export function setTreeGlow(amount: number): void {
+  const glow = Math.min(1, Math.max(0, amount)) * 0.9;
+  for (const material of treeMaterials.values()) material.emissiveIntensity = glow;
+}
+
 function addBox(
   parent: THREE.Object3D,
   x: number,
@@ -54,10 +71,7 @@ function addBox(
   color: number,
   bookId?: string,
 ): void {
-  const mesh = new THREE.Mesh(
-    new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK),
-    new THREE.MeshLambertMaterial({ color }),
-  );
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK), treeMaterial(color));
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -368,6 +382,7 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const markerRef = useRef<THREE.Mesh | null>(null);
+  const skyTimeRef = useRef<HTMLParagraphElement>(null);
   const spotsRef = useRef(new Map<string, Spot>());
   const focusRequest = useRef<string | null>(null);
   const [mode, setMode] = useState<"3d" | "static">("3d");
@@ -448,14 +463,12 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(el.clientWidth, el.clientHeight);
     renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     el.appendChild(renderer.domElement);
     placeCamera();
 
-    scene.add(new THREE.AmbientLight(0xfff6ea, 0.72));
-    const sun = new THREE.DirectionalLight(0xfff1d4, 1.05);
-    sun.position.set(12, 22, 8);
-    sun.castShadow = true;
-    scene.add(sun);
+    const sky = createIslandSky(scene);
 
     buildGrove(scene, trees, categories);
     const spots = forestPositions(trees);
@@ -574,6 +587,11 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
         focusRequest.current = null;
       }
       placeCamera();
+      const phase = sky.update(camera, performance.now());
+      setTreeGlow(sky.glow);
+      if (skyTimeRef.current && skyTimeRef.current.textContent !== phase) {
+        skyTimeRef.current.textContent = phase;
+      }
       renderer.render(scene, camera);
     };
     animate();
@@ -587,6 +605,7 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("wheel", onWheel);
+      sky.dispose();
       renderer.dispose();
       el.replaceChildren();
     };
@@ -653,6 +672,9 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
         )}
       </form>
       {hover && <TreePopup hover={hover} categories={categories} />}
+      <p className="sky-time" ref={skyTimeRef}>
+        Dawn
+      </p>
       <p className="view-hint">Drag to turn · scroll to zoom · click a tree to read</p>
     </div>
   );

@@ -10,6 +10,7 @@ import {
   DEFAULT_BOOK_CATEGORIES,
   EXTRACTION_VERSION,
   isDue,
+  gradeAnswer,
   isWeakQuiz,
   nextReviewDate,
   parseOutlineFromText,
@@ -761,7 +762,7 @@ export function scoreAttempt(
   }
   let correctCount = 0;
   for (const question of questions) {
-    if (answers[question.id] === question.correctChoiceId) correctCount += 1;
+    if (gradeAnswer(question, answers[question.id])) correctCount += 1;
   }
   const total = questions.length;
   const weak = isWeakQuiz(correctCount, total);
@@ -1177,6 +1178,25 @@ export function saveLibraryExcerpt(
   return { id: source.id, text: input.text, hash: source.textHash };
 }
 
+export function saveWebExcerpt(
+  db: Db,
+  chapter: Chapter,
+  input: { url: string; text: string },
+): { id: string; text: string; hash: string } {
+  const source = insertSource(db, {
+    bookId: chapter.bookId,
+    provenanceType: "retrieved",
+    provenanceLabel: `Section text from ${input.url}`,
+    text: input.text,
+    url: input.url,
+    aiConsentAt: nowIso(),
+  });
+  db.prepare(
+    `UPDATE chapters SET source_document_id = ?, source_span_start = 0, source_span_end = ?, updated_at = ? WHERE id = ?`,
+  ).run(source.id, input.text.length, nowIso(), chapter.id);
+  return { id: source.id, text: input.text, hash: source.textHash };
+}
+
 export function chapterText(db: Db, chapter: Chapter): string | null {
   if (!chapter.sourceDocumentId) return null;
   const source = getSource(db, chapter.sourceDocumentId);
@@ -1221,6 +1241,12 @@ export function exportBackup(db: Db) {
     "reward_events",
     "settings",
     "activity_log",
+    "project_batches",
+    "project_dismissals",
+    "projects",
+    "project_versions",
+    "project_submissions",
+    "project_reviews",
     "schema_migrations",
   ];
   const payload: Record<string, unknown[]> = {};
@@ -1248,6 +1274,12 @@ export function restoreBackup(db: Db, backup: { payload?: Record<string, unknown
     "reward_events",
     "settings",
     "activity_log",
+    "project_batches",
+    "project_dismissals",
+    "projects",
+    "project_versions",
+    "project_submissions",
+    "project_reviews",
   ];
   db.exec("BEGIN");
   try {

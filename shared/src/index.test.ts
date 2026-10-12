@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyProgress, planProgress } from "./progress.js";
+import { gradeAnswer } from "./quiz.js";
 import { isDue, isWeakQuiz, nextReviewDate, SUCCESS_INTERVALS_DAYS } from "./schedule.js";
 import { passageExistsInSource, titleGroundedInSource } from "./grounding.js";
 import {
@@ -9,7 +10,7 @@ import {
 } from "./rewards.js";
 import { FIXTURE_SOURCE, FIXTURE_CHAPTER_TITLES } from "./fixture.js";
 import { assignPdfPageIndices, outlineFromPdfBookmarks, overlayPrintedPages, parseOutlineFromText, parseTableOfContents } from "./outline.js";
-import { isSubstantialChapter, sliceLongestChapter } from "./chapter-text.js";
+import { hasProse, isSubstantialChapter, sliceLongestChapter } from "./chapter-text.js";
 import { creditVisitedPage, resumePdfPage } from "./reading.js";
 import { bookGrowth, growthForBook, trunkBlocks, treeTypeForBook } from "./trees.js";
 import { DEFAULT_BOOK_CATEGORIES, bookCategory, createCategory } from "./categories.js";
@@ -188,6 +189,16 @@ describe("chapter text", () => {
     expect(isSubstantialChapter("Dead Reckoning Assumptions", "Dead Reckoning Assumptions")).toBe(
       false,
     );
+    expect(
+      hasProse(
+        "1 Introduction\n2 Essential background I\n3 The alpha beta gamma filter\n4 Kalman Filter in one dimension\n5 Adding process noise",
+      ),
+    ).toBe(false);
+    expect(
+      hasProse(
+        "A moving average smooths a sequence by replacing each sample with the mean of its neighbors.",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -287,6 +298,16 @@ describe("rewards", () => {
     expect(bookCategory(DEFAULT_BOOK_CATEGORIES, "not-a-plate")).toBeNull();
     expect(createCategory("Electronic warfare", DEFAULT_BOOK_CATEGORIES).id).toBe("electronic-warfare");
     expect(createCategory("Navigation", DEFAULT_BOOK_CATEGORIES).id).toBe("navigation-2");
+  });
+
+  it("scores a select, a multi-select, and a calculated value", () => {
+    expect(gradeAnswer({ correctChoiceId: "a" }, "a")).toBe(true);
+    expect(gradeAnswer({ correctChoiceId: "a" }, "b")).toBe(false);
+    expect(gradeAnswer({ kind: "multi", correctChoiceIds: ["a", "c"] }, "c,a")).toBe(true);
+    expect(gradeAnswer({ kind: "multi", correctChoiceIds: ["a", "c"] }, "a")).toBe(false);
+    expect(gradeAnswer({ kind: "numeric", answer: "1/2" }, "0.5")).toBe(true);
+    expect(gradeAnswer({ kind: "numeric", answer: "0.25" }, "0.5")).toBe(false);
+    expect(gradeAnswer({ kind: "numeric", answer: "10" }, "")).toBe(false);
   });
 
   it("does not deteriorate with zero new events", () => {
