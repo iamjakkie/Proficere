@@ -4,6 +4,8 @@ import {
   AppError,
   applyGrounding,
   hasProse,
+  preserveExamKey,
+  redactProposal,
   runObjectiveCheck,
   validateVerificationPlan,
   type CriterionCheck,
@@ -13,6 +15,7 @@ import {
   type SourceCorpus,
 } from "@progress-island/shared";
 import type { Db } from "./db.js";
+import { topicsFromText, type SectionTopic } from "./site-chapter.js";
 import {
   chapterText,
   getBook,
@@ -75,8 +78,13 @@ export type ReviewRecord = {
   label: string;
   nextAction: string | null;
   operational: { message: string } | null;
+  grade: string | null;
+  passed: boolean | null;
+  notes: { line: number; text: string }[] | null;
   createdAt: string;
 };
+
+export type ProjectView = ProjectRecord & { grade: string | null; passed: boolean | null };
 
 function parseJson<T>(value: string, fallback: T): T {
   try {
@@ -147,8 +155,11 @@ export function buildSuggestionContext(db: Db, input: {
   output: string;
   tools: string;
   instruction: string;
+  topics?: Record<string, SectionTopic[]>;
 }) {
   const corpus = corpusForChapters(db, input.chapterIds);
+  const topicsFor = (chapterId: string, text: string) =>
+    input.topics?.[chapterId] ?? topicsFromText(text);
   const projects = listProjects(db).slice(0, 8).map((project) => {
     const latest = latestReviewForProject(db, project.id);
     return {
@@ -167,6 +178,7 @@ export function buildSuggestionContext(db: Db, input: {
       progress: chapterProgress(db, item.chapterId),
       sourceHash: item.sourceHash,
       hasProse: item.hasProse,
+      topics: topicsFor(item.chapterId, item.text).map((topic) => topic.heading),
     })),
     projects,
     dismissals: dismissals.map((item) => ({ key: item.proposalKey, reason: item.reason })),
@@ -193,7 +205,7 @@ export function buildSuggestionContext(db: Db, input: {
       readingStatus: chapterStatus(db, item.chapterId),
       progressPercent: chapterProgress(db, item.chapterId),
       grounding: item.hasProse ? "excerpt" : "outline_only",
-      excerpt: item.hasProse ? item.text.slice(0, 3500) : null,
+      topics: topicsFor(item.chapterId, item.text),
     })),
     previousProjects: projects,
     dismissedSuggestions: dismissals.map((item) => ({ title: item.title, reason: item.reason })),
@@ -264,10 +276,15 @@ export function dismissSuggestion(db: Db, title: string, reason: string): void {
   ).run(uuid(), title.trim().toLowerCase(), title.trim(), clean, nowIso());
 }
 
-export function listProjects(db: Db): ProjectRecord[] {
+export function listProjects(db: Db): ProjectView[] {
   return (
     db.prepare("SELECT * FROM projects ORDER BY updated_at DESC").all() as Record<string, unknown>[]
-  ).map(mapProject);
+  ).map((row) => annotateProject(db, mapProject(row)));
+}
+
+function annotateProject(db: Db, project: ProjectRecord): ProjectView {
+  const latest = latestReviewForProject(db, project.id);
+  return { ...project, grade: latest?.grade ?? null, passed: latest?.passed ?? null };
 }
 
 export function getProject(db: Db, id: string): ProjectRecord {
@@ -276,11 +293,11 @@ export function getProject(db: Db, id: string): ProjectRecord {
   return mapProject(row);
 }
 
-export function focusedProject(db: Db): ProjectRecord | null {
+export function focusedProject(db: Db): ProjectView | null {
   const row = db
     .prepare("SELECT * FROM projects WHERE status IN ('draft', 'active') ORDER BY updated_at DESC LIMIT 1")
     .get() as Record<string, unknown> | undefined;
-  return row ? mapProject(row) : null;
+  return row ? annotateProject(db, mapProject(row)) : null;
 }
 
 export function acceptProposal(
@@ -313,6 +330,9 @@ export function acceptProposal(
     `INSERT INTO projects (id, batch_id, proposal_id, status, brief_json, dismiss_reason, created_at, updated_at)
      VALUES (?, ?, ?, 'draft', ?, NULL, ?, ?)`,
   ).run(id, batchId, proposalId, JSON.stringify(proposal), ts, ts);
+  if (proposal.exam && validateVerificationPlan(proposal.criteria).activation === "ready") {
+    approveProject(db, id, "objective");
+  }
   return getProject(db, id);
 }
 
@@ -325,8 +345,9 @@ export function updateDraft(db: Db, projectId: string, brief: ProjectProposal): 
       409,
     );
   }
+  const kept = preserveExamKey(brief, project.brief);
   db.prepare("UPDATE projects SET brief_json = ?, updated_at = ? WHERE id = ?").run(
-    JSON.stringify(brief),
+    JSON.stringify(kept),
     nowIso(),
     projectId,
   );
@@ -562,6 +583,9 @@ export function saveReview(
     label: string;
     nextAction: string | null;
     operational: { message: string } | null;
+    grade?: string | null;
+    passed?: boolean | null;
+    notes?: { line: number; text: string }[] | null;
   },
 ): ReviewRecord {
   const existing = findReview(db, input.submissionId);
@@ -569,8 +593,8 @@ export function saveReview(
   const id = uuid();
   db.prepare(
     `INSERT INTO project_reviews
-     (id, submission_id, version_id, objective_json, reasoning_json, questions_json, answer_json, answer_review_json, label, next_action, operational_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+     (id, submission_id, version_id, objective_json, reasoning_json, questions_json, answer_json, answer_review_json, label, next_action, operational_json, grade, passed, notes_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.submissionId,
@@ -581,6 +605,9 @@ export function saveReview(
     input.label,
     input.nextAction,
     input.operational ? JSON.stringify(input.operational) : null,
+    input.grade ?? null,
+    input.passed == null ? null : input.passed ? 1 : 0,
+    input.notes ? JSON.stringify(input.notes) : null,
     nowIso(),
   );
   return getReview(db, id);
@@ -626,8 +653,23 @@ function mapReview(row: Record<string, unknown>): ReviewRecord {
     label: String(row.label),
     nextAction: (row.next_action as string) ?? null,
     operational: row.operational_json ? parseJson(String(row.operational_json), null) : null,
+    grade: row.grade == null ? null : String(row.grade),
+    passed: row.passed == null ? null : Number(row.passed) === 1,
+    notes: row.notes_json ? parseJson(String(row.notes_json), null) : null,
     createdAt: String(row.created_at),
   };
+}
+
+export function presentProject<T extends { brief: ProjectProposal }>(project: T): T {
+  return { ...project, brief: redactProposal(project.brief) };
+}
+
+export function presentVersion<T extends { brief: ProjectProposal }>(version: T): T {
+  return { ...version, brief: redactProposal(version.brief) };
+}
+
+export function presentBatch<T extends { proposals: ProjectProposal[] }>(batch: T): T {
+  return { ...batch, proposals: batch.proposals.map(redactProposal) };
 }
 
 function latestReviewForProject(db: Db, projectId: string): ReviewRecord | null {

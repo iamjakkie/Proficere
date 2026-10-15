@@ -12,6 +12,15 @@ pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 4;
 
+type ExamGate = {
+  chapterId: string;
+  title: string;
+  bookId: string;
+  projectId: string | null;
+  message: string;
+  resumePage: number;
+};
+
 function pdfErrorMessage(error: unknown): string {
   const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
   if (name === "PasswordException") return "This PDF is password protected, so it cannot be opened here.";
@@ -68,6 +77,7 @@ export function ReadPage() {
   const [spread, setSpread] = useState(false);
   const [stageBox, setStageBox] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
+  const [examGate, setExamGate] = useState<ExamGate | null>(null);
   const [placed, setPlaced] = useState(() => params.has("page"));
   const stageRef = useRef<HTMLDivElement>(null);
   const leftRef = useRef<HTMLCanvasElement>(null);
@@ -112,19 +122,42 @@ export function ReadPage() {
     const pageCount = doc.numPages;
     const seen = spread ? Math.min(pageCount, pairStart(page) + 1) : page;
     const timer = window.setTimeout(() => {
-      api<{ book: Book; chapters: Chapter[] }>(`/api/books/${id}/reading`, {
-        method: "POST",
-        body: JSON.stringify({ page: seen, pageCount }),
-      })
+      api<{ book: Book; chapters: Chapter[]; examLock: string | null; examGate: ExamGate | null }>(
+        `/api/books/${id}/reading`,
+        {
+          method: "POST",
+          body: JSON.stringify({ page: seen, pageCount }),
+        },
+      )
         .then((data) => {
           setBook(data.book);
           setChapters(data.chapters);
-          setError((current) => (current === "Could not save reading progress." ? null : current));
+          setExamGate(data.examGate);
+          if (data.examGate) setError(null);
+          else if (data.examLock) setError(data.examLock);
+          else setError((current) => (current === "Could not save reading progress." || current?.startsWith("Pass the exam") ? null : current));
         })
         .catch(() => setError("Could not save reading progress."));
       }, 400);
     return () => window.clearTimeout(timer);
   }, [placed, page, spread, doc, id, book?.libraryFilename]);
+
+  useEffect(() => {
+    if (!examGate || examGate.projectId || !placed || !doc || !id) return;
+    const pageCount = doc.numPages;
+    const seen = spread ? Math.min(pageCount, pairStart(page) + 1) : page;
+    const timer = window.setInterval(() => {
+      api<{ examGate: ExamGate | null }>(`/api/books/${id}/reading`, {
+        method: "POST",
+        body: JSON.stringify({ page: seen, pageCount }),
+      })
+        .then((data) => {
+          if (data.examGate) setExamGate(data.examGate);
+        })
+        .catch(() => undefined);
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [examGate, placed, doc, id, page, spread]);
 
   useEffect(() => {
     if (!placed) return;
@@ -273,21 +306,26 @@ export function ReadPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [doc, spread]);
+  }, [doc, spread, examGate, page]);
+
+  function pastExam(target: number): boolean {
+    return examGate != null && target > examGate.resumePage;
+  }
 
   function turn(delta: number) {
     const last = doc?.numPages;
     if (!last) return;
     setPage((current) => {
-      if (!spread) return Math.min(last, Math.max(1, current + delta));
-      const start = pairStart(current);
-      return Math.min(last, Math.max(1, start + delta * 2));
+      const next = spread ? pairStart(current) + delta * 2 : current + delta;
+      const clamped = Math.min(last, Math.max(1, next));
+      if (delta > 0 && pastExam(clamped)) return current;
+      return clamped;
     });
   }
 
   function commitPage() {
     const requested = Number(pageDraft);
-    if (!Number.isInteger(requested)) {
+    if (!Number.isInteger(requested) || pastExam(requested)) {
       setPageDraft(String(page));
       return;
     }
@@ -297,7 +335,7 @@ export function ReadPage() {
 
   function openChapter(chapter: Chapter) {
     const resume = resumePdfPage(chapter);
-    if (resume == null) return;
+    if (resume == null || pastExam(resume)) return;
     setPage(resume);
   }
 
@@ -337,7 +375,7 @@ export function ReadPage() {
           <button
             className="btn"
             type="button"
-            disabled={!doc || spreadEnd >= (pages ?? page)}
+            disabled={!doc || spreadEnd >= (pages ?? page) || pastExam(page + (spread ? 2 : 1))}
             onClick={() => turn(1)}
           >
             Next
@@ -400,6 +438,33 @@ export function ReadPage() {
           </div>
         </div>
       </div>
+      {examGate && (
+        <div className="reader-gate" role="dialog" aria-modal="true" aria-labelledby="reader-gate-title">
+          <div className="reader-gate-card">
+            <h2 id="reader-gate-title">Pass this exam before continuing</h2>
+            <p>{examGate.message}</p>
+            <div className="row">
+              <Link
+                className="btn primary"
+                to={
+                  examGate.projectId
+                    ? `/projects?project=${examGate.projectId}`
+                    : `/projects?book=${examGate.bookId}&chapters=${examGate.chapterId}`
+                }
+              >
+                Open the exam
+              </Link>
+              <button className="btn" type="button" onClick={() => setPage(examGate.resumePage)}>
+                Stay on this chapter
+              </button>
+              <Link className="btn" to={`/books/${id}`}>
+                Back to the book
+              </Link>
+            </div>
+            {!examGate.projectId && <p className="muted">The exam is being written from this chapter.</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

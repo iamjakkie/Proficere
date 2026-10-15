@@ -46,10 +46,10 @@ export function chapterPdfSpan(
 }
 
 /**
- * The page on screen is progress for the chapter that contains it.
- * Earlier chapters stay as they are. A page past the previous mark in that
- * chapter counts, including a jump to its end. Books with no PDF page spans
- * use the furthest page opened in the file.
+ * Every chapter the open page has reached gets credit. A chapter whose last
+ * page is behind the open page is complete. The chapter that contains the
+ * page gets a partial percent. Saved progress is never lowered. Books with
+ * no PDF page spans use the furthest page opened in the file.
  */
 export function creditVisitedPage(
   chapters: ReadingChapter[],
@@ -60,26 +60,102 @@ export function creditVisitedPage(
   if (!Number.isInteger(page) || !Number.isInteger(pageCount) || page < 1 || pageCount < 1 || page > pageCount) {
     return { bookReadPage, credits: [] };
   }
+  const nextBookPage = Math.max(bookReadPage, page);
   if (!hasPdfSpans(chapters)) {
-    return { bookReadPage: Math.max(bookReadPage, page), credits: [] };
+    return { bookReadPage: nextBookPage, credits: [] };
   }
-  let match = -1;
-  chapters.forEach((_, index) => {
+  const credits: ReadingCredit[] = [];
+  chapters.forEach((chapter, index) => {
     const span = chapterPdfSpan(chapters, index, pageCount);
-    if (span && page >= span.start && page <= span.end) match = index;
+    if (!span || page < span.start) return;
+    const counted = Math.min(span.end, Math.max(creditedPdfPage(chapter.pagePosition) ?? 0, page));
+    const length = span.end - span.start + 1;
+    const progressPercent = Math.min(100, Math.round(((counted - span.start + 1) / length) * 100));
+    if (progressPercent <= chapter.progressPercent) return;
+    credits.push({ id: chapter.id, progressPercent, creditedPdfPage: counted });
   });
-  if (match < 0) return { bookReadPage, credits: [] };
-  const chapter = chapters[match];
-  const span = chapterPdfSpan(chapters, match, pageCount);
-  if (!chapter || !span) return { bookReadPage, credits: [] };
-  const reached = Math.min(span.end, Math.max(creditedPdfPage(chapter.pagePosition) ?? 0, page));
-  const length = span.end - span.start + 1;
-  const progressPercent = Math.round(((reached - span.start + 1) / length) * 100);
-  if (progressPercent <= chapter.progressPercent) return { bookReadPage, credits: [] };
+  return { bookReadPage: nextBookPage, credits };
+}
+
+const FRONT_MATTER =
+  /^(?:table of contents|contents|preface|foreword|prologue|acknowledg(?:e)?ments?|dedication|copyright|bibliography|references|glossary|index|list of (?:figures|tables|illustrations|abbreviations|symbols|acronyms)|about the authors?|notation|abbreviations|title page|half[- ]title|frontispiece|colophon|errata|series page)\b/i;
+
+/** Preface, contents, acknowledgements, and the title page do not get a review or an exam. */
+export function isFrontMatter(title: string): boolean {
+  const name = title.replace(/\s+/g, " ").trim();
+  if (/^(?:chapter\s+\d+|\d+(?:\.\d+)+)\b/i.test(name)) return false;
+  if (FRONT_MATTER.test(name)) return true;
+  return !/^chapter\b/i.test(name) && !/^\d/.test(name) && name.length > 48;
+}
+
+export function usesNumberedChapters(titles: string[]): boolean {
+  return titles.some((title) => /^chapter\s+\d+\b/i.test(title.trim()));
+}
+
+/** A numbered book stops at each “Chapter N”. Other books stop at each real heading. */
+export function isMilestoneTitle(title: string, numberedChapters: boolean): boolean {
+  if (isFrontMatter(title)) return false;
+  const name = title.trim();
+  if (numberedChapters) return /^chapter\s+\d+\b/i.test(name);
+  return !/^\d+(?:\.\d+)+\b/.test(name);
+}
+
+export type MilestoneChapter = ReadingChapter & { title: string };
+
+export type ReadingMilestoneGate = {
+  chapterId: string;
+  title: string;
+  stopIndex: number;
+  resumePage: number;
+};
+
+/**
+ * Entering the next chapter requires the previous chapter’s exam.
+ * Sections inside the open chapter do not stop the reader.
+ */
+export function readingMilestoneGate(
+  chapters: MilestoneChapter[],
+  page: number,
+  pageCount: number,
+): ReadingMilestoneGate | null {
+  if (!Number.isInteger(page) || page < 1) return null;
+  const numbered = usesNumberedChapters(chapters.map((chapter) => chapter.title));
+  const milestones = chapters.flatMap((chapter, index) =>
+    isMilestoneTitle(chapter.title, numbered) ? [index] : [],
+  );
+  if (milestones.length < 2) return null;
+  let entered = -1;
+  for (const index of milestones) {
+    const span = chapterPdfSpan(chapters, index, pageCount);
+    if (span && page >= span.start) entered = index;
+  }
+  const enteredPos = milestones.indexOf(entered);
+  if (enteredPos <= 0) return null;
+  const previous = chapters[milestones[enteredPos - 1] ?? -1];
+  const enteredSpan = chapterPdfSpan(chapters, entered, pageCount);
+  if (!previous || !enteredSpan) return null;
   return {
-    bookReadPage,
-    credits: [{ id: chapter.id, progressPercent, creditedPdfPage: reached }],
+    chapterId: previous.id,
+    title: previous.title,
+    stopIndex: entered,
+    resumePage: Math.max(1, enteredSpan.start - 1),
   };
+}
+
+/** The milestone heading plus the sections that belong to it, capped for one exam. */
+export function milestoneChapterIds(chapters: MilestoneChapter[], milestoneId: string): string[] {
+  const numbered = usesNumberedChapters(chapters.map((chapter) => chapter.title));
+  const start = chapters.findIndex((chapter) => chapter.id === milestoneId);
+  if (start < 0) return [];
+  const ids: string[] = [];
+  for (let index = start; index < chapters.length; index += 1) {
+    if (index > start && isMilestoneTitle(chapters[index]?.title ?? "", numbered)) break;
+    if (isFrontMatter(chapters[index]?.title ?? "")) continue;
+    const id = chapters[index]?.id;
+    if (id) ids.push(id);
+    if (ids.length >= 6) break;
+  }
+  return ids;
 }
 
 export function resumePdfPage(chapter: ReadingChapter): number | null {

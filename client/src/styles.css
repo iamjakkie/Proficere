@@ -319,6 +319,53 @@ nav a.active,
   gap: 12px;
 }
 
+.md p,
+.md ul,
+.md ol {
+  margin: 0;
+}
+
+.md h2,
+.md h3,
+.md h4 {
+  font-size: 1rem;
+  margin: 0.8em 0 0.15em;
+}
+
+.md ul,
+.md ol {
+  padding-left: 1.2rem;
+}
+
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: #efe8dc;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
+.md pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #efe8dc;
+}
+
+.md pre code {
+  background: none;
+  padding: 0;
+}
+
+.md .katex,
+.md .katex-display {
+  font-size: 1em;
+}
+
+.md .katex-display {
+  margin: 0.35em 0;
+}
+
 .row {
   display: flex;
   gap: 8px;
@@ -375,6 +422,159 @@ textarea {
 .banner.danger {
   background: #f6dede;
   color: var(--danger);
+}
+
+.exam-fail {
+  border: 1px solid var(--danger);
+  background: #f6dede;
+}
+
+.exam-editor,
+.exam-script {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+}
+
+.exam-work {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.exam-editor {
+  min-height: 320px;
+  height: 100%;
+  resize: vertical;
+}
+
+.exam-output {
+  height: 320px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+.exam-output-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+.exam-output-summary {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 8px 10px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.exam-output-summary p {
+  margin: 0;
+}
+
+.exam-output-summary.failed {
+  background: #f6dede;
+  color: var(--danger);
+}
+
+.exam-output-note {
+  margin-top: 4px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.exam-output-row {
+  display: grid;
+  grid-template-columns: 2.4em minmax(0, 1fr);
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.exam-output-row.failed {
+  background: #f6dede;
+  color: var(--danger);
+}
+
+.exam-output-line {
+  color: var(--muted);
+  text-align: right;
+}
+
+.exam-output-row.failed .exam-output-line,
+.exam-output-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.exam-output-code,
+.exam-output-value {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.exam-output-error {
+  display: block;
+  margin-top: 4px;
+}
+
+.exam-script {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.project-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.project-list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.project-row {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 12px;
+}
+
+.project-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.project-title {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-sources {
+  color: var(--muted);
+}
+
+.project-body {
+  padding: 0 12px 12px;
 }
 
 .banner.good {
@@ -697,6 +897,34 @@ textarea {
   flex-shrink: 0;
 }
 
+.reader-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(27, 36, 48, 0.46);
+}
+
+.reader-gate-card {
+  width: min(32rem, 100%);
+  padding: 22px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.reader-gate-card h2 {
+  margin: 0 0 8px;
+  font-size: 1.35rem;
+}
+
+.reader-gate-card p {
+  margin: 0 0 14px;
+}
+
 .reader-page-label {
   display: flex;
   align-items: center;
@@ -779,7 +1007,8 @@ textarea {
 }
 
 @media (max-width: 840px) {
-  .grid {
+  .grid,
+  .exam-work {
     grid-template-columns: 1fr;
   }
   .outline-row {

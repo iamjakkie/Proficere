@@ -1,7 +1,8 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { Book, Chapter, IslandState, OutlineChapter } from "@progress-island/shared";
-import { api } from "../api";
+import { isFrontMatter } from "@progress-island/shared";
+import { ApiError, api } from "../api";
 import { OutlineEditor, type OutlineRow } from "../OutlineEditor";
 
 type SourceInfo = {
@@ -9,11 +10,60 @@ type SourceInfo = {
   provenanceLabel: string;
 };
 
+type ChapterExam = {
+  chapterId: string;
+  projectId: string;
+  title: string;
+  status: string;
+  passed: boolean | null;
+};
+
 type UnmatchedChapter = {
   existingId: string;
   title: string;
   status: string;
 };
+
+function examPath(bookId: string, chapterId: string, exams: ChapterExam[]): string {
+  const exam = exams.find((item) => item.chapterId === chapterId);
+  if (exam) return `/projects?project=${exam.projectId}`;
+  return `/projects?book=${bookId}&chapters=${chapterId}`;
+}
+
+function examLabel(exam: ChapterExam): string {
+  if (exam.passed === true) return `${exam.title} · Passed`;
+  if (exam.passed === false) return `${exam.title} · Failed`;
+  if (exam.status === "paused") return `${exam.title} · Paused`;
+  return exam.title;
+}
+
+function ChapterExamLinks({
+  bookId,
+  chapterId,
+  exams,
+}: {
+  bookId: string;
+  chapterId: string;
+  exams: ChapterExam[];
+}) {
+  const matches = exams.filter((exam) => exam.chapterId === chapterId);
+  if (matches.length === 0) {
+    return (
+      <Link className="btn" to={examPath(bookId, chapterId, exams)}>
+        Start exam
+      </Link>
+    );
+  }
+  return (
+    <>
+      {matches.map((exam) => (
+        <Link key={exam.projectId} className="btn" to={`/projects?project=${exam.projectId}`}>
+          {examLabel(exam)}
+        </Link>
+      ))}
+    </>
+  );
+}
 
 function pageLabel(chapter: Pick<Chapter, "pageStart" | "pageEnd">): string {
   if (chapter.pageStart && chapter.pageEnd) return `pages ${chapter.pageStart}–${chapter.pageEnd}`;
@@ -46,6 +96,13 @@ export function BookPage() {
   const [source, setSource] = useState<SourceInfo | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [chapterNotice, setChapterNotice] = useState<{
+    id: string;
+    message: string;
+    examChapterId: string | null;
+    examTitle: string | null;
+  } | null>(null);
+  const [exams, setExams] = useState<ChapterExam[]>([]);
   const [, setIsland] = useState<IslandState | null>(null);
   const [paste, setPaste] = useState("");
   const [consent, setConsent] = useState(false);
@@ -66,9 +123,11 @@ export function BookPage() {
       source: SourceInfo | null;
       draftOutline: OutlineChapter[] | null;
       dismissedSourceId: string | null;
+      exams?: ChapterExam[];
     }>(`/api/books/${id}`);
     setBook(data.book);
     setChapters(data.chapters);
+    setExams(data.exams ?? []);
     setSource(data.source);
     await loadLibrary(data.book.title);
     const sourceUnused =
@@ -136,12 +195,29 @@ export function BookPage() {
   }
 
   async function complete(chapterId: string) {
-    const data = await api<{ chapter: Chapter; island: IslandState }>(`/api/chapters/${chapterId}`, {
-      method: "PATCH",
-      body: JSON.stringify({ progressPercent: 100, note: note.trim() ? note.trim() : null }),
-    });
-    setChapters((list) => list.map((c) => (c.id === data.chapter.id ? data.chapter : c)));
-    setIsland(data.island);
+    setError(null);
+    setChapterNotice(null);
+    try {
+      const data = await api<{ chapter: Chapter; island: IslandState }>(`/api/chapters/${chapterId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ progressPercent: 100, note: note.trim() ? note.trim() : null }),
+      });
+      setChapters((list) => list.map((c) => (c.id === data.chapter.id ? data.chapter : c)));
+      setIsland(data.island);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The chapter could not be marked done.";
+      const details =
+        err instanceof ApiError && err.details && typeof err.details === "object"
+          ? (err.details as { chapterId?: unknown; title?: unknown })
+          : null;
+      setError(message);
+      setChapterNotice({
+        id: chapterId,
+        message,
+        examChapterId: typeof details?.chapterId === "string" ? details.chapterId : null,
+        examTitle: typeof details?.title === "string" ? details.title : null,
+      });
+    }
   }
 
   async function undo(chapterId: string) {
@@ -364,7 +440,11 @@ export function BookPage() {
           manually. Discovery did not invent a chapter structure.
         </div>
       )}
-      {error && <p className="banner danger">{error}</p>}
+      {error && (
+        <p className="banner danger" role="alert">
+          {error}
+        </p>
+      )}
       <p>
         Plan {completedSelected}/{selected.length} completed. Whole book {completedBook}/
         {chapters.length} completed.
@@ -428,15 +508,29 @@ export function BookPage() {
                   Open PDF
                 </Link>
               )}
-              {chapter.status === "completed" && (
+              {chapter.status === "completed" && !isFrontMatter(chapter.title) && (
                 <Link className="btn primary" to={`/review/${chapter.id}`}>
                   Review pack
                 </Link>
               )}
-              <Link className="btn" to={`/projects?book=${book.id}&chapters=${chapter.id}`}>
-                Use in a project
-              </Link>
+              <ChapterExamLinks bookId={book.id} chapterId={chapter.id} exams={exams} />
             </div>
+            {chapterNotice?.id === chapter.id && (
+              <p className="banner danger" role="alert">
+                {chapterNotice.examChapterId && chapterNotice.examTitle ? (
+                  <>
+                    Pass the exam for{" "}
+                    <Link to={examPath(book.id, chapterNotice.examChapterId, exams)}>{chapterNotice.examTitle}</Link>{" "}
+                    before marking a later chapter done.
+                    {exams.some((exam) => exam.chapterId === chapterNotice.examChapterId)
+                      ? ""
+                      : " No exam has been started for that chapter yet."}
+                  </>
+                ) : (
+                  chapterNotice.message
+                )}
+              </p>
+            )}
           </div>
           <div className="stack">
             <label>

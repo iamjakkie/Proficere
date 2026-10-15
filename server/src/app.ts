@@ -19,6 +19,7 @@ import {
   validateVerificationPlan,
 } from "@progress-island/shared";
 import { aiConfigured, config } from "./config.js";
+import { scheduleReadingFollowups } from "./reading-followup.js";
 import type { Db } from "./db.js";
 import { searchCatalog } from "./catalog.js";
 import { extractPdfText, PDF_LIMITS } from "./pdf.js";
@@ -49,6 +50,7 @@ import {
 } from "./openrouter.js";
 import { fetchSectionFromSite } from "./site-chapter.js";
 import { reviewAnswersWithAi, reviewSubmissionWithAi, suggestProjectsWithAi } from "./project-ai.js";
+import { previewExam, reviewExam } from "./exam-review.js";
 import {
   acceptProposal,
   addSubmission,
@@ -68,6 +70,9 @@ import {
   listSubmissions,
   listVersions,
   objectiveResultsFor,
+  presentBatch,
+  presentProject,
+  presentVersion,
   projectOptions,
   reopenForRevision,
   resumeProject,
@@ -126,6 +131,22 @@ const upload = multer({
   limits: { fileSize: PDF_LIMITS.maxBytes },
 });
 
+function examsForBook(db: Db, bookId: string) {
+  return listProjects(db)
+    .filter((project) => project.status !== "dismissed")
+    .flatMap((project) =>
+      project.brief.sources
+        .filter((source) => source.bookId === bookId && source.chapterId)
+        .map((source) => ({
+          chapterId: source.chapterId,
+          projectId: project.id,
+          title: project.brief.title,
+          status: project.status,
+          passed: project.passed,
+        })),
+    );
+}
+
 function asyncHandler(
   fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>,
 ) {
@@ -140,7 +161,9 @@ function projectLabelText(label: string): string {
     label === "ai_reviewed" ||
     label === "needs_revision" ||
     label === "operational_failure" ||
-    label === "unverified"
+    label === "unverified" ||
+    label === "passed" ||
+    label === "failed"
   ) {
     return assessmentLabelText(label);
   }
@@ -356,6 +379,7 @@ export function createApp(db: Db): Express {
           : null,
         draftOutline: draftOutlineForBook(db, book.id),
         dismissedSourceId: dismissedSourceId(db, book.id),
+        exams: examsForBook(db, book.id),
       });
     }),
   );
@@ -461,7 +485,14 @@ export function createApp(db: Db): Express {
           pageCount: z.number().int().positive(),
         })
         .parse(req.body);
-      res.json(recordReading(db, req.params.id, body.page, body.pageCount));
+      const result = recordReading(db, req.params.id, body.page, body.pageCount);
+      scheduleReadingFollowups(db, result.followups);
+      res.json({
+        book: result.book,
+        chapters: result.chapters,
+        examLock: result.examLock,
+        examGate: result.examGate,
+      });
     }),
   );
 
@@ -837,11 +868,13 @@ export function createApp(db: Db): Express {
   );
 
   app.get("/api/projects/options", (_req, res) => {
+    const focused = focusedProject(db);
+    const batch = latestBatch(db);
     res.json({
       books: projectOptions(db),
-      focused: focusedProject(db),
-      projects: listProjects(db),
-      batch: latestBatch(db),
+      focused: focused ? presentProject(focused) : null,
+      projects: listProjects(db).map(presentProject),
+      batch: batch ? presentBatch(batch) : null,
     });
   });
 
@@ -851,8 +884,8 @@ export function createApp(db: Db): Express {
       const project = getProject(db, req.params.id);
       const submissions = listSubmissions(db, project.id);
       res.json({
-        project,
-        versions: listVersions(db, project.id),
+        project: presentProject(project),
+        versions: listVersions(db, project.id).map(presentVersion),
         submissions,
         reviews: submissions.map((submission) => findReview(db, submission.id)).filter(Boolean),
         plan: validateVerificationPlan(project.brief.criteria),
@@ -879,6 +912,17 @@ export function createApp(db: Db): Express {
       if (!aiConfigured()) {
         throw new AppError("Configure OpenRouter to enable AI. Your progress is unchanged.", "missing_config", 400);
       }
+      const topics: Record<string, { heading: string; equations: string[] }[]> = {};
+      for (const chapterId of body.chapterIds) {
+        const chapter = getChapter(db, chapterId);
+        const book = getBook(db, chapter.bookId);
+        const stored = chapterText(db, chapter) ?? "";
+        if (book.catalogUrl && !book.libraryFilename) {
+          const fetched = await fetchSectionFromSite(book.catalogUrl, chapter.title);
+          if (!hasProse(stored)) saveWebExcerpt(db, chapter, fetched);
+          topics[chapterId] = fetched.topics;
+        }
+      }
       const context = buildSuggestionContext(db, {
         chapterIds: body.chapterIds,
         goal: body.goal ?? "",
@@ -886,11 +930,12 @@ export function createApp(db: Db): Express {
         output: body.output ?? "",
         tools: body.tools ?? "",
         instruction: body.instruction ?? "",
+        topics,
       });
       if (!body.refresh) {
         const existing = findBatch(db, context.hash);
         if (existing) {
-          res.json({ batch: existing, reused: true });
+          res.json({ batch: presentBatch(existing), reused: true });
           return;
         }
       }
@@ -899,8 +944,11 @@ export function createApp(db: Db): Express {
         proposals = await suggestProjectsWithAi(context.packet, context.corpus);
       } catch (error) {
         if (error instanceof AppError) throw error;
+        const message = error instanceof Error ? error.message : "";
         throw new AppError(
-          "The model did not return a usable project suggestion. Nothing was started.",
+          message.startsWith("The model did not")
+            ? message
+            : "The model did not return a usable project suggestion. Nothing was started.",
           "validation",
           502,
         );
@@ -918,7 +966,7 @@ export function createApp(db: Db): Express {
         },
         proposals,
       );
-      res.json({ batch, reused: false });
+      res.json({ batch: presentBatch(batch), reused: false });
     }),
   );
 
@@ -942,7 +990,7 @@ export function createApp(db: Db): Express {
         })
         .parse(req.body);
       const project = acceptProposal(db, body.batchId, body.proposalId, Boolean(body.setAside));
-      res.status(201).json({ project, plan: validateVerificationPlan(project.brief.criteria) });
+      res.status(201).json({ project: presentProject(project), plan: validateVerificationPlan(project.brief.criteria) });
     }),
   );
 
@@ -951,7 +999,7 @@ export function createApp(db: Db): Express {
     asyncHandler(async (req, res) => {
       const body = z.object({ brief: ProjectProposalSchema }).parse(req.body);
       const project = updateDraft(db, req.params.id, body.brief);
-      res.json({ project, plan: validateVerificationPlan(project.brief.criteria) });
+      res.json({ project: presentProject(project), plan: validateVerificationPlan(project.brief.criteria) });
     }),
   );
 
@@ -959,21 +1007,21 @@ export function createApp(db: Db): Express {
     "/api/projects/:id/dismiss",
     asyncHandler(async (req, res) => {
       const body = z.object({ reason: z.string().min(3).max(500) }).parse(req.body);
-      res.json({ project: dismissProject(db, req.params.id, body.reason) });
+      res.json({ project: presentProject(dismissProject(db, req.params.id, body.reason)) });
     }),
   );
 
   app.post(
     "/api/projects/:id/resume",
     asyncHandler(async (req, res) => {
-      res.json({ project: resumeProject(db, req.params.id) });
+      res.json({ project: presentProject(resumeProject(db, req.params.id)) });
     }),
   );
 
   app.post(
     "/api/projects/:id/revise",
     asyncHandler(async (req, res) => {
-      res.json({ project: reopenForRevision(db, req.params.id) });
+      res.json({ project: presentProject(reopenForRevision(db, req.params.id)) });
     }),
   );
 
@@ -982,7 +1030,22 @@ export function createApp(db: Db): Express {
     asyncHandler(async (req, res) => {
       const body = z.object({ assessmentMode: z.enum(["objective", "ai_reviewed"]) }).parse(req.body);
       const version = approveProject(db, req.params.id, body.assessmentMode);
-      res.json({ version, project: getProject(db, req.params.id) });
+      res.json({ version: presentVersion(version), project: presentProject(getProject(db, req.params.id)) });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/run",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ deliverable: z.string().max(20_000) }).parse(req.body ?? {});
+      const project = getProject(db, req.params.id);
+      if (project.status !== "active") {
+        throw new AppError("Open an active project before running a derivation.", "invalid_state", 409);
+      }
+      if (!project.brief.exam) {
+        throw new AppError("This project has no derivation to run.", "invalid_state", 409);
+      }
+      res.json(await previewExam(project.brief, body.deliverable));
     }),
   );
 
@@ -1024,6 +1087,28 @@ export function createApp(db: Db): Express {
       const version = listVersions(db, submission.projectId).find((item) => item.id === submission.versionId);
       if (!version) {
         throw new AppError("This submission is missing its frozen brief version.", "version_mismatch", 409);
+      }
+      if (version.brief.exam) {
+        const graded = await reviewExam({
+          brief: version.brief,
+          deliverable: submission.artifacts.deliverable,
+          gradeWithModel: aiConfigured(),
+        });
+        const review = saveReview(db, {
+          submissionId: submission.id,
+          versionId: version.id,
+          objective: graded.objective,
+          reasoning: graded.reasoning,
+          questions: graded.questions,
+          label: graded.label,
+          nextAction: graded.nextAction,
+          operational: graded.operational,
+          grade: graded.grade,
+          passed: graded.passed,
+          notes: graded.notes,
+        });
+        res.json({ review, labelText: projectLabelText(review.label) });
+        return;
       }
       const objective = objectiveResultsFor(version, submission.artifacts);
       const runnerFailed = objective.some((item) => item.operational);
@@ -1116,7 +1201,7 @@ export function createApp(db: Db): Express {
   app.post(
     "/api/projects/:id/finish",
     asyncHandler(async (req, res) => {
-      res.json({ project: finishProject(db, req.params.id) });
+      res.json({ project: presentProject(finishProject(db, req.params.id)) });
     }),
   );
 

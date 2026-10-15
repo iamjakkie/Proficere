@@ -138,6 +138,9 @@ describe("project process", () => {
       instruction: "",
     });
     expect(second.hash).not.toBe(first.hash);
+    const section = (first.packet as { sections: { topics: unknown[]; excerpt?: unknown }[] }).sections[0];
+    expect(section?.excerpt).toBeUndefined();
+    expect(section?.topics).toEqual([]);
     expect(latestBatch(h.db)).toBeNull();
     const corpus = corpusForChapters(h.db, [kalman.id, algebra.id, outline.id]);
     expect(corpus.find((item) => item.chapterId === outline.id)?.hasProse).toBe(false);

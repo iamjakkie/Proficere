@@ -207,6 +207,14 @@ CREATE TABLE project_reviews (
 );
 `,
   },
+  {
+    version: 6,
+    sql: `
+ALTER TABLE project_reviews ADD COLUMN grade TEXT;
+ALTER TABLE project_reviews ADD COLUMN passed INTEGER;
+ALTER TABLE project_reviews ADD COLUMN notes_json TEXT;
+`,
+  },
 ];
 
 export type Db = Database.Database;

@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 import type { Db } from "./db.js";
 import {
   applyProgress,
+  statusFromPercent,
   BookCategorySchema,
   chapterCompleteKey,
   continentLayout,
@@ -20,7 +21,9 @@ import {
   PDF_POSITION_PREFIX,
   creditVisitedPage,
   growthForBook,
-  hasPdfSpans,
+  isFrontMatter,
+  milestoneChapterIds,
+  readingMilestoneGate,
   trunkBlocks,
   treeTypeForBook,
   reviewCompleteKey,
@@ -430,6 +433,15 @@ export function updateChapter(
     const next = applyProgress(current, patch.progressPercent);
     progressPercent = next.progressPercent;
     status = next.status;
+    if (status === "completed" && current.status !== "completed") {
+      const lock = examLockMessage(db, current);
+      if (lock) {
+        throw new AppError(lock.message, "exam_required", 409, {
+          chapterId: lock.chapterId,
+          title: lock.title,
+        });
+      }
+    }
   }
   const ts = nowIso();
   const nextChapter: Chapter = {
@@ -483,39 +495,168 @@ export function updateChapter(
 
 const READING_NOTE = "Read in the PDF viewer";
 
+export type ExamGate = {
+  chapterId: string;
+  title: string;
+  bookId: string;
+  projectId: string | null;
+  message: string;
+  resumePage: number;
+};
+
+export type ReadingFollowups = {
+  reviewChapterIds: string[];
+  examChapterIds: string[];
+};
+
 export function recordReading(
   db: Db,
   bookId: string,
   page: number,
   pageCount: number,
-): { book: Book; chapters: Chapter[] } {
+): { book: Book; chapters: Chapter[]; examLock: string | null; examGate: ExamGate | null; followups: ReadingFollowups } {
   if (!Number.isInteger(page) || !Number.isInteger(pageCount) || page < 1 || page > pageCount) {
     throw new AppError("That page is outside this PDF.", "validation", 400);
   }
   const book = getBook(db, bookId);
   const chapters = listChapters(db, bookId);
+  const beforeStatus = new Map(chapters.map((chapter) => [chapter.id, chapter.status]));
   const stored = Number(book.identifiers.readPdfPage);
   const bookReadPage = Number.isInteger(stored) && stored > 0 ? stored : 0;
   const credited = creditVisitedPage(chapters, page, pageCount, bookReadPage);
-  for (const credit of credited.credits) {
-    writeReadingProgress(db, credit.id, credit.progressPercent, credit.creditedPdfPage);
+  const gate = readingMilestoneGate(chapters, page, pageCount);
+  const activeGate = gate && !chapterExamPassed(db, gate.chapterId) ? gate : null;
+  const applicable = credited.credits.filter((credit) => {
+    if (!activeGate) return true;
+    const index = chapters.findIndex((chapter) => chapter.id === credit.id);
+    return index >= 0 && index < activeGate.stopIndex;
+  });
+  let examLock: string | null = activeGate
+    ? `Pass the exam for “${activeGate.title}” before continuing.`
+    : null;
+  for (const credit of applicable) {
+    const lock = writeReadingProgress(db, credit.id, credit.progressPercent, credit.creditedPdfPage);
+    if (lock && !examLock) examLock = lock;
   }
   const extra: Record<string, string> = {
     lastPdfPage: String(page),
     pdfPageCount: String(pageCount),
   };
-  if (!hasPdfSpans(chapters) && credited.bookReadPage > 0) {
-    extra.readPdfPage = String(credited.bookReadPage);
-  }
+  if (credited.bookReadPage > 0) extra.readPdfPage = String(credited.bookReadPage);
   mergeBookIdentifiers(db, bookId, extra);
   logActivity(db, "reading_progress", { bookId, page, pageCount });
-  return { book: getBook(db, bookId), chapters: listChapters(db, bookId) };
+  const updated = listChapters(db, bookId);
+  const reviewChapterIds = updated
+    .filter((chapter) => {
+      if (chapter.status !== "completed" || isFrontMatter(chapter.title) || latestPack(db, chapter.id)) return false;
+      return beforeStatus.get(chapter.id) !== "completed" || completedByReading(db, chapter.id);
+    })
+    .map((chapter) => chapter.id);
+  const examChapterIds = activeGate ? milestoneChapterIds(chapters, activeGate.chapterId) : [];
+  return {
+    book: getBook(db, bookId),
+    chapters: updated,
+    examLock,
+    examGate: activeGate
+      ? {
+          chapterId: activeGate.chapterId,
+          title: activeGate.title,
+          bookId,
+          projectId: examProjectId(db, activeGate.chapterId),
+          message: `Pass the exam for “${activeGate.title}” before continuing.`,
+          resumePage: activeGate.resumePage,
+        }
+      : null,
+    followups: { reviewChapterIds, examChapterIds },
+  };
 }
 
-function writeReadingProgress(db: Db, id: string, progressPercent: number, creditedPdfPage: number): void {
+function completedByReading(db: Db, chapterId: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT note FROM progress_events WHERE chapter_id = ? AND undone_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+    .get(chapterId) as { note: string | null } | undefined;
+  return row?.note === READING_NOTE;
+}
+
+function chapterExamPassed(db: Db, chapterId: string): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 AS ok FROM project_reviews r
+       JOIN project_versions v ON v.id = r.version_id
+       JOIN projects p ON p.id = v.project_id
+       WHERE r.passed = 1 AND p.status != 'dismissed' AND instr(v.brief_json, ?) > 0
+       LIMIT 1`,
+    )
+    .get(chapterId);
+  return Boolean(row);
+}
+
+function examProjectId(db: Db, chapterId: string): string | null {
+  const version = db
+    .prepare(
+      `SELECT p.id FROM projects p
+       JOIN project_versions v ON v.project_id = p.id
+       WHERE p.status != 'dismissed' AND instr(v.brief_json, ?) > 0
+       ORDER BY p.updated_at DESC LIMIT 1`,
+    )
+    .get(chapterId) as { id: string } | undefined;
+  if (version) return version.id;
+  const draft = db
+    .prepare(
+      `SELECT id FROM projects
+       WHERE status != 'dismissed' AND instr(brief_json, ?) > 0
+       ORDER BY updated_at DESC LIMIT 1`,
+    )
+    .get(chapterId) as { id: string } | undefined;
+  return draft?.id ?? null;
+}
+
+function examLockMessage(db: Db, chapter: Chapter): { message: string; chapterId: string; title: string } | null {
+  const blocking = db
+    .prepare(
+      `SELECT id, title FROM chapters earlier
+       WHERE earlier.book_id = ? AND earlier.outline_position < ?
+         AND EXISTS (
+           SELECT 1 FROM projects p
+           JOIN project_versions v ON v.project_id = p.id
+           WHERE p.status != 'dismissed'
+             AND instr(v.brief_json, earlier.id) > 0
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM project_reviews r
+           JOIN project_versions v ON v.id = r.version_id
+           JOIN projects p ON p.id = v.project_id
+           WHERE r.passed = 1
+             AND p.status != 'dismissed'
+             AND instr(v.brief_json, earlier.id) > 0
+         )
+       ORDER BY earlier.outline_position ASC
+       LIMIT 1`,
+    )
+    .get(chapter.bookId, chapter.outlinePosition) as { id: string; title: string } | undefined;
+  if (!blocking) return null;
+  return {
+    message: `Pass the exam for “${blocking.title}” before marking a later chapter done.`,
+    chapterId: blocking.id,
+    title: blocking.title,
+  };
+}
+
+function writeReadingProgress(db: Db, id: string, progressPercent: number, creditedPdfPage: number): string | null {
   const current = getChapter(db, id);
-  if (progressPercent <= current.progressPercent) return;
+  if (progressPercent <= current.progressPercent) return null;
   const next = applyProgress(current, progressPercent);
+  let examLock: string | null = null;
+  if (next.status === "completed" && current.status !== "completed") {
+    examLock = examLockMessage(db, current)?.message ?? null;
+    if (examLock) {
+      next.progressPercent = Math.min(next.progressPercent, 99);
+      next.status = statusFromPercent(next.progressPercent);
+    }
+  }
   const ts = nowIso();
   const pagePosition = `${PDF_POSITION_PREFIX}${creditedPdfPage}`;
   const nextChapter: Chapter = {
@@ -553,6 +694,7 @@ function writeReadingProgress(db: Db, id: string, progressPercent: number, credi
     `UPDATE chapters SET progress_percent = ?, status = ?, page_position = ?, updated_at = ? WHERE id = ?`,
   ).run(nextChapter.progressPercent, nextChapter.status, pagePosition, ts, id);
   maybeGrantChapterReward(db, nextChapter);
+  return examLock;
 }
 
 export function undoLastProgress(db: Db, chapterId: string): Chapter {

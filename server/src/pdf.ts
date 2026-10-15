@@ -122,6 +122,19 @@ async function openPdf(buffer: Buffer, filename: string, maxBytes: number): Prom
   }
 }
 
+/** Read a known PDF page span. Does not scan the rest of the file. */
+export async function extractPdfPageRange(
+  buffer: Buffer,
+  filename: string,
+  start: number,
+  end: number,
+): Promise<string> {
+  const doc = await openPdf(buffer, filename, LIBRARY_MAX_BYTES);
+  const first = Math.min(doc.numPages, Math.max(1, start));
+  const last = Math.min(doc.numPages, Math.max(first, end), first + LIBRARY_MAX_CHAPTER_PAGES - 1);
+  return readMarkedPages(doc, first, last);
+}
+
 export async function extractFrontMatter(
   buffer: Buffer,
   filename: string,

@@ -46,6 +46,71 @@ function withoutChrome(html: string): string {
     .replace(/<footer\b[\s\S]*?<\/footer>/gi, " ");
 }
 
+export type SectionTopic = { heading: string; equations: string[] };
+
+const EXAMPLE_HEADING = /\b(iterations?|example)\b/i;
+
+/** Headings that introduce a displayed equation, in page order. Worked-example walkthroughs are left out. */
+export function topicsFromHtml(html: string): SectionTopic[] {
+  const stripped = withoutChrome(html);
+  const pattern = /<h([1-4])\b[^>]*>([\s\S]*?)<\/h\1>|\\\[([\s\S]*?)\\\]/gi;
+  const topics: { heading: string; equations: string[]; saw: boolean }[] = [];
+  let current: { heading: string; equations: string[]; saw: boolean } | null = null;
+  for (const match of stripped.matchAll(pattern)) {
+    if (match[1]) {
+      const heading = decodeEntities(match[2] ?? "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      current =
+        match[1] !== "1" && heading && !EXAMPLE_HEADING.test(heading)
+          ? { heading, equations: [], saw: false }
+          : null;
+      if (current) topics.push(current);
+      continue;
+    }
+    if (!current) continue;
+    const equation = (match[3] ?? "").replace(/\s+/g, " ").trim();
+    if (!equation || equation.length > 240) continue;
+    current.saw = true;
+    if (current.equations.length >= 4 || /\d+\.\d+/.test(equation)) continue;
+    current.equations.push(equation);
+  }
+  return topics.filter((topic) => topic.saw).map(({ heading, equations }) => ({ heading, equations }));
+}
+
+/** Same inventory for stored text that already has headings on their own lines and display math. */
+export function topicsFromText(text: string): SectionTopic[] {
+  const topics: { heading: string; equations: string[]; saw: boolean }[] = [];
+  let current: { heading: string; equations: string[]; saw: boolean } | null = null;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const equations = [...trimmed.matchAll(/\\\[([\s\S]*?)\\\]/g)].map((match) => match[1]?.trim() ?? "");
+    if (equations.length > 0) {
+      if (!current) continue;
+      for (const equation of equations) {
+        if (!equation || equation.length > 240) continue;
+        current.saw = true;
+        if (current.equations.length >= 4 || /\d+\.\d+/.test(equation)) continue;
+        current.equations.push(equation);
+      }
+      continue;
+    }
+    if (!isTopicHeading(trimmed)) continue;
+    current = { heading: trimmed, equations: [], saw: false };
+    topics.push(current);
+  }
+  return topics.filter((topic) => topic.saw).map(({ heading, equations }) => ({ heading, equations }));
+}
+
+function isTopicHeading(line: string): boolean {
+  if (line.length < 3 || line.length > 80 || /[.!?:]$/.test(line)) return false;
+  if (/\\\[|\\\(/.test(line) || EXAMPLE_HEADING.test(line)) return false;
+  const words = line.split(/\s+/);
+  return words.length >= 1 && words.length <= 8;
+}
+
 /** Keep headings and paragraphs. Navigation and scripts stay out of the chapter text. */
 export function articleText(html: string): string {
   const stripped = withoutChrome(html);
@@ -136,7 +201,7 @@ async function readHtml(url: string, catalogHost: string): Promise<{ html: strin
 export async function fetchSectionFromSite(
   catalogUrl: string,
   title: string,
-): Promise<{ url: string; text: string }> {
+): Promise<{ url: string; text: string; topics: SectionTopic[] }> {
   let catalog: URL;
   try {
     catalog = new URL(catalogUrl);
@@ -159,14 +224,15 @@ export async function fetchSectionFromSite(
           ? page.html
           : (await readHtml(match.url, catalog.host)).html;
       const text = articleText(html);
-      if (!hasProse(text)) {
+      const topics = topicsFromHtml(html);
+      if (!hasProse(text) && topics.length === 0) {
         throw new AppError(
           "The linked page did not contain this section’s prose. Nothing was sent to the model.",
           "missing_source",
           400,
         );
       }
-      return { url: match.url, text };
+      return { url: match.url, text, topics };
     }
     if (fetched >= FETCH_LIMIT) continue;
     for (const link of links) {

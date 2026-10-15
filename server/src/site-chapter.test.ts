@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { reviewPackFromModelJson } from "./openrouter.js";
-import { articleText, findSectionLink, linksFromHtml, sectionMatchKey } from "./site-chapter.js";
+import { articleText, findSectionLink, linksFromHtml, sectionMatchKey, topicsFromHtml, topicsFromText } from "./site-chapter.js";
 
 const PAGE = `
 <nav><a href="/secret.html">Secret</a></nav>
@@ -30,6 +30,31 @@ describe("site chapter text", () => {
     expect(text).toContain("mean of its neighbors");
     expect(text).not.toContain("Secret");
     expect(text).not.toContain("alert");
+  });
+
+  it("lists every equation heading and skips a worked example", () => {
+    const html = `
+      <h2>Prediction</h2>
+      <h3>State Extrapolation Equation</h3>
+      <div>\\[ x1 = F*x + G*u \\]</div>
+      <h3>Measurement uncertainty</h3>
+      <div>\\[ R = 4 \\]</div>
+      <h4>Iteration Zero</h4>
+      <div>\\[ x = 60.0 \\]</div>
+    `;
+    expect(topicsFromHtml(html).map((topic) => topic.heading)).toEqual([
+      "State Extrapolation Equation",
+      "Measurement uncertainty",
+    ]);
+    const text = [
+      "State prediction",
+      "\\[ x1 = x + v*dt \\]",
+      "State update",
+      "\\[ x = x + K*(z - x) \\]",
+      "First Iteration",
+      "\\[ K = 0.9 \\]",
+    ].join("\n");
+    expect(topicsFromText(text).map((topic) => topic.heading)).toEqual(["State prediction", "State update"]);
   });
 
   it("keeps calculation and multi-select questions and drops flashcards", () => {

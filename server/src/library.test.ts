@@ -112,10 +112,107 @@ describe("reading progress from the viewer", () => {
     expect(finished.body.chapters[0]).toMatchObject({ progressPercent: 100, status: "completed" });
     expect(finished.body.chapters[1].progressPercent).toBe(0);
     const jumped = await request(app).post(`/api/books/${id}/reading`).send({ page: 4, pageCount: 4 }).expect(200);
-    expect(jumped.body.chapters[1]).toMatchObject({ progressPercent: 100, status: "completed" });
+    expect(jumped.body.chapters[0]).toMatchObject({ progressPercent: 100, status: "completed" });
+    expect(jumped.body.chapters[1].progressPercent).toBe(0);
+    expect(jumped.body.examGate).toMatchObject({ title: "One", resumePage: 2 });
+    expect(jumped.body.examLock).toBe("Pass the exam for “One” before continuing.");
+    const now = new Date().toISOString();
+    h.db.prepare(
+      `INSERT INTO projects (id, batch_id, proposal_id, status, brief_json, dismiss_reason, created_at, updated_at)
+       VALUES ('proj-read', NULL, 'p', 'active', '{}', NULL, ?, ?)`,
+    ).run(now, now);
+    h.db.prepare(
+      `INSERT INTO project_versions
+       (id, project_id, version_number, brief_json, plan_json, source_snapshot_json, assessment_mode, created_at)
+       VALUES ('ver-read', 'proj-read', 1, ?, '{}', '[]', 'objective', ?)`,
+    ).run(JSON.stringify({ sources: [{ chapterId: firstId }] }), now);
+    h.db.prepare(
+      `INSERT INTO project_reviews
+       (id, submission_id, version_id, objective_json, questions_json, label, created_at, passed)
+       VALUES ('rev-read', 'sub-read', 'ver-read', '[]', '[]', 'passed', ?, 1)`,
+    ).run(now);
+    const cleared = await request(app).post(`/api/books/${id}/reading`).send({ page: 4, pageCount: 4 }).expect(200);
+    expect(cleared.body.chapters[1]).toMatchObject({ progressPercent: 100, status: "completed" });
+    expect(cleared.body.examGate).toBeNull();
     const undone = await request(app).post(`/api/chapters/${firstId}/undo`).expect(200);
     expect(undone.body.chapter.progressPercent).toBe(0);
     await request(app).post(`/api/books/${id}/reading`).send({ page: 9, pageCount: 4 }).expect(400);
+  });
+
+  it("blocks a later chapter until an earlier exam is passed", async () => {
+    const h = tempDb();
+    handles.push(h);
+    const app = createApp(h.db);
+    const created = await request(app).post("/api/books").send({ title: "Exam Gate" });
+    const id = created.body.book.id as string;
+    const saved = await request(app)
+      .post(`/api/books/${id}/chapters/confirm`)
+      .send({
+        outline: [
+          { number: null, title: "One", pdfPageStart: 1, pdfPageEnd: 1 },
+          { number: null, title: "Two", pdfPageStart: 2, pdfPageEnd: 2 },
+        ],
+      })
+      .expect(200);
+    const firstId = saved.body.chapters[0].id as string;
+    const secondId = saved.body.chapters[1].id as string;
+    const now = new Date().toISOString();
+    h.db.prepare(
+      `INSERT INTO projects (id, batch_id, proposal_id, status, brief_json, dismiss_reason, created_at, updated_at)
+       VALUES ('proj', NULL, 'p', 'active', '{}', NULL, ?, ?)`,
+    ).run(now, now);
+    h.db.prepare(
+      `INSERT INTO project_versions
+       (id, project_id, version_number, brief_json, plan_json, source_snapshot_json, assessment_mode, created_at)
+       VALUES ('ver', 'proj', 1, ?, '{}', '[]', 'objective', ?)`,
+    ).run(JSON.stringify({ sources: [{ chapterId: firstId }] }), now);
+    await request(app).patch(`/api/chapters/${firstId}`).send({ progressPercent: 100 }).expect(200);
+    await request(app).patch(`/api/chapters/${secondId}`).send({ progressPercent: 50 }).expect(200);
+    const blocked = await request(app).patch(`/api/chapters/${secondId}`).send({ progressPercent: 100 });
+    expect(blocked.status).toBe(409);
+    expect(blocked.body.code).toBe("exam_required");
+    expect(blocked.body.error).toBe("Pass the exam for “One” before marking a later chapter done.");
+    h.db.prepare(
+      `INSERT INTO project_reviews
+       (id, submission_id, version_id, objective_json, questions_json, label, created_at, passed)
+       VALUES ('rev', 'sub', 'ver', '[]', '[]', 'passed', ?, 1)`,
+    ).run(now);
+    const opened = await request(app).patch(`/api/chapters/${secondId}`).send({ progressPercent: 100 }).expect(200);
+    expect(opened.body.chapter.status).toBe("completed");
+  });
+
+  it("completes front matter while reading and waits at the next chapter", async () => {
+    const h = tempDb();
+    handles.push(h);
+    const app = createApp(h.db);
+    const created = await request(app).post("/api/books").send({ title: "Numbered" });
+    const id = created.body.book.id as string;
+    const saved = await request(app)
+      .post(`/api/books/${id}/chapters/confirm`)
+      .send({
+        outline: [
+          { number: null, title: "Preface", pdfPageStart: 1, pdfPageEnd: 1 },
+          { number: null, title: "Chapter 1 Introduction", pdfPageStart: 2, pdfPageEnd: 2 },
+          { number: null, title: "1.1 Concepts", pdfPageStart: 2, pdfPageEnd: 3 },
+          { number: null, title: "Chapter 2 Frames", pdfPageStart: 4, pdfPageEnd: 4 },
+        ],
+      })
+      .expect(200);
+    const inside = await request(app).post(`/api/books/${id}/reading`).send({ page: 3, pageCount: 4 }).expect(200);
+    expect(inside.body.chapters.map((chapter: { title: string; progressPercent: number }) => [chapter.title, chapter.progressPercent])).toEqual([
+      ["Preface", 100],
+      ["Chapter 1 Introduction", 100],
+      ["1.1 Concepts", 100],
+      ["Chapter 2 Frames", 0],
+    ]);
+    expect(inside.body.examGate).toBeNull();
+    const held = await request(app).post(`/api/books/${id}/reading`).send({ page: 4, pageCount: 4 }).expect(200);
+    expect(held.body.chapters[3].progressPercent).toBe(0);
+    expect(held.body.examGate).toMatchObject({
+      chapterId: saved.body.chapters[1].id,
+      title: "Chapter 1 Introduction",
+      resumePage: 3,
+    });
   });
 
   it("grows a book that has no chapter page spans from the furthest opened page", async () => {

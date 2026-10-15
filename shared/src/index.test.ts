@@ -11,7 +11,13 @@ import {
 import { FIXTURE_SOURCE, FIXTURE_CHAPTER_TITLES } from "./fixture.js";
 import { assignPdfPageIndices, outlineFromPdfBookmarks, overlayPrintedPages, parseOutlineFromText, parseTableOfContents } from "./outline.js";
 import { hasProse, isSubstantialChapter, sliceLongestChapter } from "./chapter-text.js";
-import { creditVisitedPage, resumePdfPage } from "./reading.js";
+import {
+  creditVisitedPage,
+  isFrontMatter,
+  milestoneChapterIds,
+  readingMilestoneGate,
+  resumePdfPage,
+} from "./reading.js";
 import { bookGrowth, growthForBook, trunkBlocks, treeTypeForBook } from "./trees.js";
 import { DEFAULT_BOOK_CATEGORIES, bookCategory, createCategory } from "./categories.js";
 
@@ -247,8 +253,10 @@ describe("reading progress", () => {
     );
     expect(finished.credits[0]).toMatchObject({ id: "a", progressPercent: 100, creditedPdfPage: 2 });
     const jumped = creditVisitedPage(chapters, 4, 4, 0);
-    expect(jumped.credits).toEqual([{ id: "b", progressPercent: 100, creditedPdfPage: 4 }]);
-    expect(creditVisitedPage(chapters, 4, 4, 0).credits[0]?.id).not.toBe("a");
+    expect(jumped.credits).toEqual([
+      { id: "a", progressPercent: 100, creditedPdfPage: 2 },
+      { id: "b", progressPercent: 100, creditedPdfPage: 4 },
+    ]);
   });
 
   it("does not lower a higher saved percent", () => {
@@ -273,6 +281,38 @@ describe("reading progress", () => {
   it("resumes a chapter at the furthest credited page", () => {
     expect(resumePdfPage({ ...chapters[0], pagePosition: "pdf:2" })).toBe(2);
     expect(resumePdfPage(chapters[0])).toBe(1);
+  });
+
+  it("treats preface, contents, and acknowledgements as front matter", () => {
+    expect(isFrontMatter("Preface")).toBe(true);
+    expect(isFrontMatter("Contents")).toBe(true);
+    expect(isFrontMatter("Acknowledgments")).toBe(true);
+    expect(isFrontMatter("Chapter 1 Introduction")).toBe(false);
+    expect(isFrontMatter("1.1 Fundamental Concepts")).toBe(false);
+    expect(isFrontMatter("Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems")).toBe(true);
+  });
+
+  it("stops at the next numbered chapter and leaves the open chapter open", () => {
+    const outline = [
+      { id: "title", title: "Principles of GNSS, Inertial, and Multisensor Integrated Navigation Systems", pdfPageStart: 2, pdfPageEnd: 5, progressPercent: 0, pagePosition: null },
+      { id: "contents", title: "Contents", pdfPageStart: 6, pdfPageEnd: 17, progressPercent: 0, pagePosition: null },
+      { id: "preface", title: "Preface", pdfPageStart: 18, pdfPageEnd: 19, progressPercent: 0, pagePosition: null },
+      { id: "thanks", title: "Acknowledgments", pdfPageStart: 20, pdfPageEnd: 21, progressPercent: 0, pagePosition: null },
+      { id: "ch1", title: "Chapter 1 Introduction", pdfPageStart: 22, pdfPageEnd: 22, progressPercent: 0, pagePosition: null },
+      { id: "s11", title: "1.1 Fundamental Concepts", pdfPageStart: 22, pdfPageEnd: 25, progressPercent: 0, pagePosition: null },
+      { id: "ch2", title: "Chapter 2 Coordinate Frames", pdfPageStart: 44, pdfPageEnd: 50, progressPercent: 0, pagePosition: null },
+    ];
+    const inside = creditVisitedPage(outline, 24, 797, 0);
+    expect(inside.credits.map((credit) => credit.id)).toEqual(["title", "contents", "preface", "thanks", "ch1", "s11"]);
+    expect(inside.credits.find((credit) => credit.id === "s11")?.progressPercent).toBe(75);
+    expect(readingMilestoneGate(outline, 24, 797)).toBeNull();
+    expect(readingMilestoneGate(outline, 44, 797)).toMatchObject({
+      chapterId: "ch1",
+      title: "Chapter 1 Introduction",
+      stopIndex: 6,
+      resumePage: 43,
+    });
+    expect(milestoneChapterIds(outline, "ch1")).toEqual(["ch1", "s11"]);
   });
 });
 

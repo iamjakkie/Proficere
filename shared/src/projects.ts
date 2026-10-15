@@ -8,6 +8,7 @@ export const CheckMethodSchema = z.enum([
   "execution",
   "ai_review",
   "presence",
+  "derivation",
 ]);
 export const AssessmentModeSchema = z.enum(["objective", "ai_reviewed"]);
 export const ObjectiveStatusSchema = z.enum(["passed", "failed", "not_run"]);
@@ -28,6 +29,16 @@ export const ProjectSourceRefSchema = z.object({
   grounding: GroundingKindSchema,
   passage: z.string().nullable(),
 });
+export const ExamTaskSchema = z.object({
+  prompt: z.string().min(1),
+  given: z.array(z.string()).max(8),
+  target: z.string().min(1),
+  reference: z.string().max(400).optional().default(""),
+  required: z.array(z.string().max(400)).max(12).default([]),
+  starter: z.string().max(500).default(""),
+});
+export type ExamTask = z.infer<typeof ExamTaskSchema>;
+
 export type ProjectSourceRef = z.infer<typeof ProjectSourceRefSchema>;
 
 export const ProjectCriterionSchema = z.object({
@@ -76,6 +87,7 @@ export const ProjectProposalSchema = z.object({
   predictionRequired: z.boolean(),
   inventedExercise: z.string().min(1),
   sourceSupported: z.array(z.string()),
+  exam: ExamTaskSchema.nullable().optional(),
 });
 export type ProjectProposal = z.infer<typeof ProjectProposalSchema>;
 
@@ -325,11 +337,21 @@ export function validateVerificationPlan(criteria: ProjectCriterion[]): {
         message: "This judgment is an AI review of the submission. It is not an executed check.",
       });
     }
+    if (criterion.method === "derivation") {
+      issues.push({
+        criterionId: criterion.id,
+        severity: "limit",
+        message:
+          "SymPy checks each assignment and each required step. The grade is a separate review of the write-up.",
+      });
+    }
   }
-  const numericReady = criteria.some(
-    (criterion) => criterion.method === "numeric_tolerance" && validateNumericChecker(criterion).ok,
+  const objectiveReady = criteria.some(
+    (criterion) =>
+      (criterion.method === "numeric_tolerance" && validateNumericChecker(criterion).ok) ||
+      criterion.method === "derivation",
   );
-  if (!unsupported && !needsValidation && !numericReady) {
+  if (!unsupported && !needsValidation && !objectiveReady) {
     needsValidation = true;
     issues.push({
       criterionId: null,
@@ -370,6 +392,14 @@ export function runObjectiveCheck(criterion: ProjectCriterion, submissionText: s
       ...base,
       status: "not_run",
       explanation: "Not an objective check. The reasoning review covers this criterion.",
+    };
+  }
+  if (criterion.method === "derivation") {
+    return {
+      ...base,
+      status: "not_run",
+      operational: true,
+      explanation: "The derivation checker has not been attached to this result.",
     };
   }
   if (criterion.method === "presence") {
@@ -448,11 +478,31 @@ export function assessmentLabel(input: {
 }
 
 export function assessmentLabelText(
-  label: ReturnType<typeof assessmentLabel>,
+  label: ReturnType<typeof assessmentLabel> | "passed" | "failed",
 ): string {
+  if (label === "passed") return "Passed";
+  if (label === "failed") return "Failed";
   if (label === "verified") return "Verified against this rubric";
   if (label === "ai_reviewed") return "AI-reviewed against this rubric";
   if (label === "needs_revision") return "Needs revision";
   if (label === "operational_failure") return "Check did not finish";
   return "Unverified";
+}
+
+export function redactProposal(proposal: ProjectProposal): ProjectProposal {
+  if (!proposal.exam) return proposal;
+  return { ...proposal, exam: { ...proposal.exam, reference: "", required: [] } };
+}
+
+export function preserveExamKey(incoming: ProjectProposal, stored: ProjectProposal): ProjectProposal {
+  if (!stored.exam) return incoming;
+  if (!incoming.exam) return { ...incoming, exam: stored.exam };
+  return {
+    ...incoming,
+    exam: {
+      ...incoming.exam,
+      reference: stored.exam.reference,
+      required: stored.exam.required,
+    },
+  };
 }

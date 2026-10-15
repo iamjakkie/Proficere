@@ -14,3 +14,4 @@ client/dist/
 server/dist/
 *.log
 .vite/
+checker/.venv/
