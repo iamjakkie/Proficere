@@ -10,6 +10,7 @@ export type DerivationReport = {
   targetMatches: boolean;
   steps: { line: number | null; name: string; status: "passed" | "failed"; explanation: string; value: string | null }[];
   required: { status: "passed" | "failed"; explanation: string }[];
+  unknownImports: string[];
 };
 
 function uvBin(): string {
@@ -38,7 +39,7 @@ function readSteps(value: unknown): DerivationReport["steps"] {
 }
 
 function failed(error: string): DerivationReport {
-  return { ok: false, error, targetMatches: false, steps: [], required: [] };
+  return { ok: false, error, targetMatches: false, steps: [], required: [], unknownImports: [] };
 }
 
 export function checkDerivation(input: {
@@ -46,6 +47,7 @@ export function checkDerivation(input: {
   target: string;
   reference: string;
   required: string[];
+  imports?: string[];
 }): Promise<DerivationReport> {
   const project = path.join(config.root, "checker");
   return new Promise((resolve) => {
@@ -79,6 +81,9 @@ export function checkDerivation(input: {
           targetMatches: Boolean(parsed.targetMatches),
           steps: readSteps(parsed.steps),
           required: Array.isArray(parsed.required) ? parsed.required : [],
+          unknownImports: Array.isArray(parsed.unknownImports)
+            ? parsed.unknownImports.filter((item): item is string => typeof item === "string")
+            : [],
         });
       } catch {
         resolve(failed("The derivation checker did not return a result."));

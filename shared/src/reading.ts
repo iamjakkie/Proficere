@@ -100,6 +100,32 @@ export function isMilestoneTitle(title: string, numberedChapters: boolean): bool
   return !/^\d+(?:\.\d+)+\b/.test(name);
 }
 
+/** One exam covers several chapters. A single heading is not a stop. */
+const EXAM_GROUP_SIZE = 4;
+
+/** A one-page heading that the next section also starts on is the title of a part. */
+export function isPartOpener(chapters: MilestoneChapter[], index: number): boolean {
+  const chapter = chapters[index];
+  const next = chapters[index + 1];
+  if (!chapter || !next || isFrontMatter(chapter.title) || isFrontMatter(next.title)) return false;
+  if (chapter.pdfPageStart == null || chapter.pdfPageEnd == null || next.pdfPageStart == null) return false;
+  return chapter.pdfPageEnd === chapter.pdfPageStart && next.pdfPageStart === chapter.pdfPageStart;
+}
+
+/** Part titles when the book has them. Otherwise every fourth real chapter. */
+export function examGroupStarts(chapters: MilestoneChapter[]): number[] {
+  const openers = chapters.flatMap((_, index) => (isPartOpener(chapters, index) ? [index] : []));
+  if (openers.length >= 2) return openers;
+  const numbered = usesNumberedChapters(chapters.map((chapter) => chapter.title));
+  const content = chapters.flatMap((chapter, index) => (isMilestoneTitle(chapter.title, numbered) ? [index] : []));
+  const starts: number[] = [];
+  for (let index = 0; index < content.length; index += EXAM_GROUP_SIZE) {
+    const start = content[index];
+    if (start != null) starts.push(start);
+  }
+  return starts;
+}
+
 export type MilestoneChapter = ReadingChapter & { title: string };
 
 export type ReadingMilestoneGate = {
@@ -110,8 +136,8 @@ export type ReadingMilestoneGate = {
 };
 
 /**
- * Entering the next chapter requires the previous chapter’s exam.
- * Sections inside the open chapter do not stop the reader.
+ * Entering the next part requires an exam for the part just finished.
+ * One chapter, and the sections inside a part, do not stop the reader.
  */
 export function readingMilestoneGate(
   chapters: MilestoneChapter[],
@@ -119,10 +145,7 @@ export function readingMilestoneGate(
   pageCount: number,
 ): ReadingMilestoneGate | null {
   if (!Number.isInteger(page) || page < 1) return null;
-  const numbered = usesNumberedChapters(chapters.map((chapter) => chapter.title));
-  const milestones = chapters.flatMap((chapter, index) =>
-    isMilestoneTitle(chapter.title, numbered) ? [index] : [],
-  );
+  const milestones = examGroupStarts(chapters);
   if (milestones.length < 2) return null;
   let entered = -1;
   for (const index of milestones) {
@@ -131,9 +154,11 @@ export function readingMilestoneGate(
   }
   const enteredPos = milestones.indexOf(entered);
   if (enteredPos <= 0) return null;
-  const previous = chapters[milestones[enteredPos - 1] ?? -1];
+  const previousIndex = milestones[enteredPos - 1] ?? -1;
+  const previous = chapters[previousIndex];
+  const previousSpan = chapterPdfSpan(chapters, previousIndex, pageCount);
   const enteredSpan = chapterPdfSpan(chapters, entered, pageCount);
-  if (!previous || !enteredSpan) return null;
+  if (!previous || !previousSpan || !enteredSpan || page <= previousSpan.end) return null;
   return {
     chapterId: previous.id,
     title: previous.title,
@@ -142,20 +167,31 @@ export function readingMilestoneGate(
   };
 }
 
-/** The milestone heading plus the sections that belong to it, capped for one exam. */
+/** Chapters in the finished part, spread across it when the part is long. */
 export function milestoneChapterIds(chapters: MilestoneChapter[], milestoneId: string): string[] {
-  const numbered = usesNumberedChapters(chapters.map((chapter) => chapter.title));
+  const starts = examGroupStarts(chapters);
   const start = chapters.findIndex((chapter) => chapter.id === milestoneId);
   if (start < 0) return [];
+  const position = starts.indexOf(start);
+  const end = position >= 0 && starts[position + 1] != null ? starts[position + 1]! : chapters.length;
   const ids: string[] = [];
-  for (let index = start; index < chapters.length; index += 1) {
-    if (index > start && isMilestoneTitle(chapters[index]?.title ?? "", numbered)) break;
+  for (let index = start; index < end; index += 1) {
     if (isFrontMatter(chapters[index]?.title ?? "")) continue;
     const id = chapters[index]?.id;
     if (id) ids.push(id);
-    if (ids.length >= 6) break;
   }
-  return ids;
+  return spreadChapterIds(ids, 6);
+}
+
+function spreadChapterIds(ids: string[], limit: number): string[] {
+  if (ids.length <= limit) return ids;
+  const picked: string[] = [];
+  for (let slot = 0; slot < limit; slot += 1) {
+    const index = Math.round((slot * (ids.length - 1)) / (limit - 1));
+    const id = ids[index];
+    if (id && !picked.includes(id)) picked.push(id);
+  }
+  return picked;
 }
 
 export function resumePdfPage(chapter: ReadingChapter): number | null {

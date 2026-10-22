@@ -15,3 +15,5 @@ server/dist/
 *.log
 .vite/
 checker/.venv/
+__pycache__/
+*.pyc

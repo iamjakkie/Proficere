@@ -293,19 +293,7 @@ export function getProject(db: Db, id: string): ProjectRecord {
   return mapProject(row);
 }
 
-export function focusedProject(db: Db): ProjectView | null {
-  const row = db
-    .prepare("SELECT * FROM projects WHERE status IN ('draft', 'active') ORDER BY updated_at DESC LIMIT 1")
-    .get() as Record<string, unknown> | undefined;
-  return row ? annotateProject(db, mapProject(row)) : null;
-}
-
-export function acceptProposal(
-  db: Db,
-  batchId: string,
-  proposalId: string,
-  setAside: boolean,
-): ProjectRecord {
+export function acceptProposal(db: Db, batchId: string, proposalId: string): ProjectRecord {
   const batch = db.prepare("SELECT * FROM project_batches WHERE id = ?").get(batchId) as
     | Record<string, unknown>
     | undefined;
@@ -313,17 +301,6 @@ export function acceptProposal(
   const proposals = parseJson<ProjectProposal[]>(String(batch.proposals_json), []);
   const proposal = proposals.find((item) => item.id === proposalId);
   if (!proposal) throw new AppError("That suggestion is not in the batch.", "not_found", 404);
-  const current = focusedProject(db);
-  if (current && !setAside) {
-    throw new AppError(
-      `“${current.brief.title}” is already the focused project. Set it aside before starting another.`,
-      "project_focused",
-      409,
-    );
-  }
-  if (current && setAside) {
-    db.prepare("UPDATE projects SET status = 'paused', updated_at = ? WHERE id = ?").run(nowIso(), current.id);
-  }
   const id = uuid();
   const ts = nowIso();
   db.prepare(
@@ -481,16 +458,8 @@ function getVersion(db: Db, id: string): ProjectVersionRecord {
 
 export function resumeProject(db: Db, projectId: string): ProjectRecord {
   const project = getProject(db, projectId);
-  if (project.status !== "paused") {
-    throw new AppError("Only a set-aside project can be resumed.", "project_state", 400);
-  }
-  const current = focusedProject(db);
-  if (current) {
-    throw new AppError(
-      `“${current.brief.title}” is already the focused project. Set it aside before resuming another.`,
-      "project_focused",
-      409,
-    );
+  if (project.status === "dismissed") {
+    throw new AppError("This exam has been dismissed.", "project_state", 400);
   }
   db.prepare("UPDATE projects SET status = 'active', updated_at = ? WHERE id = ?").run(nowIso(), projectId);
   return getProject(db, projectId);
@@ -507,7 +476,7 @@ export function reopenForRevision(db: Db, projectId: string): ProjectRecord {
 
 export function addSubmission(db: Db, projectId: string, artifacts: SubmissionArtifacts): SubmissionRecord {
   const project = getProject(db, projectId);
-  if (project.status !== "active") {
+  if (project.status !== "active" && project.status !== "paused") {
     throw new AppError("Approve the brief before submitting work.", "not_approved", 400);
   }
   const version = latestVersion(db, projectId);

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import type { Book, Chapter, IslandState, OutlineChapter } from "@progress-island/shared";
 import { isFrontMatter } from "@progress-island/shared";
 import { ApiError, api } from "../api";
@@ -33,7 +33,6 @@ function examPath(bookId: string, chapterId: string, exams: ChapterExam[]): stri
 function examLabel(exam: ChapterExam): string {
   if (exam.passed === true) return `${exam.title} · Passed`;
   if (exam.passed === false) return `${exam.title} · Failed`;
-  if (exam.status === "paused") return `${exam.title} · Paused`;
   return exam.title;
 }
 
@@ -91,11 +90,14 @@ function attachExistingIds(
 
 export function BookPage() {
   const { id } = useParams();
+  const location = useLocation();
+  const arrived = (location.state as { importMessage?: string } | null)?.importMessage ?? null;
   const [book, setBook] = useState<Book | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [source, setSource] = useState<SourceInfo | null>(null);
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(arrived);
   const [chapterNotice, setChapterNotice] = useState<{
     id: string;
     message: string;
@@ -435,11 +437,26 @@ export function BookPage() {
         onRefresh={() => loadLibrary(book.title)}
       />
       {!chapters.length && !draft && (
-        <div className="banner">
-          No contents list yet. Paste a table of contents, upload a text PDF, or enter chapters
-          manually. Discovery did not invent a chapter structure.
-        </div>
+        <section className="card stack">
+          <h2>Select the PDF</h2>
+          <p className="muted">
+            Choose the file. Chapters are read from its bookmarks and opening pages. The title
+            already saved on this book stays. You confirm the chapter list before it is saved. A
+            scanned PDF with no text cannot be read.
+          </p>
+          <FromPdf
+            bookId={book.id}
+            busy={busy}
+            onBusy={setBusy}
+            onError={setError}
+            onDone={(message) => {
+              setNotice(message);
+              void reload();
+            }}
+          />
+        </section>
       )}
+      {notice && <p className="banner">{notice}</p>}
       {error && (
         <p className="banner danger" role="alert">
           {error}
@@ -559,6 +576,7 @@ export function BookPage() {
         </button>
       </form>
 
+      {chapters.length > 0 && (
       <form className="card stack" onSubmit={(event) => void pasteMore(event)}>
         <h3>Correct the import</h3>
         <p className="muted">
@@ -574,7 +592,63 @@ export function BookPage() {
           Preview pasted outline
         </button>
       </form>
+      )}
     </div>
+  );
+}
+
+function FromPdf({
+  bookId,
+  busy,
+  onBusy,
+  onError,
+  onDone,
+}: {
+  bookId: string;
+  busy: boolean;
+  onBusy: (value: boolean) => void;
+  onError: (message: string | null) => void;
+  onDone: (message: string) => void;
+}) {
+  const [consent, setConsent] = useState(false);
+  async function upload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    onBusy(true);
+    onError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("consent", "true");
+      const data = await api<{ message: string }>(`/api/books/${bookId}/from-pdf`, {
+        method: "POST",
+        body: form,
+      });
+      onDone(data.message);
+    } catch (err) {
+      onError((err as Error).message);
+    } finally {
+      onBusy(false);
+    }
+  }
+  return (
+    <>
+      <label>
+        <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /> I
+        understand the opening pages of this PDF will be sent to OpenRouter and the selected model
+        provider. A local database does not keep AI processing on this Mac.
+      </label>
+      <label>
+        Select PDF
+        <input
+          type="file"
+          accept="application/pdf,.pdf"
+          disabled={!consent || busy}
+          onChange={(event) => void upload(event)}
+        />
+      </label>
+    </>
   );
 }
 

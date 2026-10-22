@@ -306,13 +306,22 @@ describe("reading progress", () => {
     expect(inside.credits.map((credit) => credit.id)).toEqual(["title", "contents", "preface", "thanks", "ch1", "s11"]);
     expect(inside.credits.find((credit) => credit.id === "s11")?.progressPercent).toBe(75);
     expect(readingMilestoneGate(outline, 24, 797)).toBeNull();
-    expect(readingMilestoneGate(outline, 44, 797)).toMatchObject({
-      chapterId: "ch1",
-      title: "Chapter 1 Introduction",
-      stopIndex: 6,
-      resumePage: 43,
+    expect(readingMilestoneGate(outline, 44, 797)).toBeNull();
+    const parts = [
+      { id: "part", title: "Sets and functions", pdfPageStart: 7, pdfPageEnd: 7, progressPercent: 0, pagePosition: null },
+      { id: "intro", title: "Introduction to linear algebra", pdfPageStart: 7, pdfPageEnd: 11, progressPercent: 0, pagePosition: null },
+      { id: "sets", title: "Sets", pdfPageStart: 12, pdfPageEnd: 17, progressPercent: 0, pagePosition: null },
+      { id: "next", title: "The 2-dimensional space", pdfPageStart: 157, pdfPageEnd: 157, progressPercent: 0, pagePosition: null },
+      { id: "curves", title: "Parametric curves on the plane", pdfPageStart: 157, pdfPageEnd: 166, progressPercent: 0, pagePosition: null },
+    ];
+    expect(readingMilestoneGate(parts, 11, 200)).toBeNull();
+    expect(readingMilestoneGate(parts, 157, 200)).toMatchObject({
+      chapterId: "part",
+      title: "Sets and functions",
+      stopIndex: 3,
+      resumePage: 156,
     });
-    expect(milestoneChapterIds(outline, "ch1")).toEqual(["ch1", "s11"]);
+    expect(milestoneChapterIds(parts, "part")).toEqual(["part", "intro", "sets"]);
   });
 });
 

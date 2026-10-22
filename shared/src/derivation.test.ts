@@ -26,7 +26,9 @@ P0 = e0_outer.subs({a: 1, b: -1})
 z = (e0.subs({a: 1, b: -1}))[0, 0]
 `);
     expect(parsed.error).toBeNull();
-    expect(parsed.steps.map((step) => step.name)).toEqual(["e0", "e0_outer", "P0", "z"]);
+    expect(parsed.imports).toEqual(["Matrix", "symbols"]);
+    expect(parsed.steps.filter((step) => step.declaration).map((step) => step.line)).toEqual([1, 2]);
+    expect(parsed.steps.filter((step) => !step.declaration).map((step) => step.name)).toEqual(["e0", "e0_outer", "P0", "z"]);
     expect(parsed.steps.find((step) => step.name === "P0")?.expr).toBe("e0_outer.subs(a, 1).subs(b, -1)");
     expect(parsed.steps.every((step) => step.error === null)).toBe(true);
   });

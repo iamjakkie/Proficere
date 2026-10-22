@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { seedCalculations, type ProjectProposal } from "@progress-island/shared";
 import { ApiError, api } from "../api";
 import { Markdown } from "../markdown";
+import { PlaneFigure } from "../PlaneFigure";
 
 type ChapterOption = {
   id: string;
@@ -24,7 +25,6 @@ type ProjectRow = {
 
 type Options = {
   books: { id: string; title: string; chapters: ChapterOption[] }[];
-  focused: ProjectRow | null;
   projects: ProjectRow[];
   batch: { id: string; proposals: ProjectProposal[]; createdAt: string } | null;
 };
@@ -192,7 +192,7 @@ export function ProjectsPage() {
     try {
       const response = await api<{ project: { id: string } }>("/api/projects", {
         method: "POST",
-        body: JSON.stringify({ batchId: batch.id, proposalId, setAside: Boolean(options?.focused) }),
+        body: JSON.stringify({ batchId: batch.id, proposalId }),
       });
       setBatch(null);
       await load(response.project.id);
@@ -387,21 +387,7 @@ export function ProjectsPage() {
                       prompt={detail.project.brief.exam?.prompt || detail.project.brief.problem}
                       given={detail.project.brief.exam?.given}
                     />
-                    {detail.project.status === "paused" && (
-                      <button
-                        className="btn"
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          void api(`/api/projects/${detail.project.id}/resume`, { method: "POST" })
-                            .then(() => load(detail.project.id))
-                            .catch((err: unknown) => setError(messageOf(err)))
-                        }
-                      >
-                        Resume this project
-                      </button>
-                    )}
-                    {detail.project.status === "active" && (
+                    {(detail.project.status === "active" || detail.project.status === "paused") && (
                       <form
                         className="stack"
                         onSubmit={(event) => {
@@ -411,7 +397,9 @@ export function ProjectsPage() {
                       >
                         <p className="muted">
                           Each line is a calculation. <code>F*x + G*u</code> is enough, and <code>x = F*x + G*u</code> keeps
-                          the result. <code>#</code> is a note. Run checks it with SymPy. Submit sends it for a grade.
+                          the result. SymPy names such as <code>Eq</code> are available, and{" "}
+                          <code>from sympy import Name</code> adds another one. <code>#</code> is a note. Run checks it
+                          with SymPy. Submit sends it for a grade.
                         </p>
                         <div className="exam-work">
                           <textarea
@@ -474,23 +462,27 @@ function sourceAt(source: string, line: number | null, nextLine: number | null):
 function RunReport({ result, source }: { result: RunResult; source: string }) {
   const scroller = useRef<HTMLDivElement>(null);
   const failures = result.steps.filter((step) => step.status === "failed");
+  const ran = result.steps.filter((step) => step.status === "passed" && step.value);
   const failed = Boolean(result.error) || failures.length > 0 || result.summary.includes("does not match");
   const heading = result.error
     ? result.error
-    : failures.length > 0
-      ? `${failures.length} ${failures.length === 1 ? "error" : "errors"}`
-      : result.summary;
+    : ran.length > 0
+      ? `Ran ${ran.length} ${ran.length === 1 ? "calculation" : "calculations"}.`
+      : failures.length > 0
+        ? `${failures.length} ${failures.length === 1 ? "error" : "errors"}`
+        : result.operational || result.summary;
   useEffect(() => {
     const pane = scroller.current;
-    const row = pane?.querySelector(".exam-output-row.failed");
-    if (row instanceof HTMLElement) row.scrollIntoView({ block: "nearest" });
+    if (pane) pane.scrollTop = 0;
   }, [result]);
   return (
     <div className="exam-output" ref={scroller} role="region" aria-label="Run output">
       <div className={failed ? "exam-output-summary failed" : "exam-output-summary"} role={failed ? "alert" : undefined}>
         <p>{heading}</p>
+        {result.summary && result.summary !== heading && (
+          <p className="exam-output-note">{result.summary.startsWith(heading) ? result.summary.slice(heading.length).trim() : result.summary}</p>
+        )}
         {result.operational && <p className="exam-output-note">{result.operational}</p>}
-        {failures.length > 0 && result.summary && <p className="exam-output-note">{result.summary}</p>}
       </div>
       {result.steps.map((step, index) => {
         const next = result.steps[index + 1]?.line ?? null;
@@ -500,8 +492,9 @@ function RunReport({ result, source }: { result: RunResult; source: string }) {
           <div key={`${step.line}-${step.name}-${index}`} className={isFailed ? "exam-output-row failed" : "exam-output-row"}>
             <span className="exam-output-line">{step.line ?? ""}</span>
             <span>
-              <span className="exam-output-code">{code || step.name}</span>
-              {!isFailed && step.value ? <span className="exam-output-value">{" = "}{step.value}</span> : null}
+              <span className="exam-output-code">
+                {isFailed ? code || step.name : step.value ? `${step.name} = ${step.value}` : step.name}
+              </span>
               {isFailed && <span className="exam-output-error">{step.explanation}</span>}
             </span>
           </div>
@@ -512,11 +505,14 @@ function RunReport({ result, source }: { result: RunResult; source: string }) {
 }
 
 function ExamStatement({ prompt, given }: { prompt: string; given: string[] | undefined }) {
-  const promptHasData = prompt.includes("\\begin{bmatrix}");
+  const rows = given ?? [];
+  const shown = prompt.replace(/\s+/g, "");
+  const extra = rows.filter((item) => !shown.includes(item.replace(/\s+/g, "")));
   return (
     <>
       <Markdown source={prompt} />
-      {!promptHasData && <ExamData given={given} />}
+      <PlaneFigure given={rows} />
+      <ExamData given={extra} />
     </>
   );
 }
@@ -527,32 +523,71 @@ function ExamData({ given }: { given: string[] | undefined }) {
     <div className="stack">
       <h3>Data</h3>
       {given.map((item) => (
-        <Markdown key={item} source={`\\[${item}\\]`} />
+        <Markdown key={item} source={`\\[${givenTex(item)}\\]`} />
       ))}
     </div>
   );
 }
 
+function givenTex(item: string): string {
+  const eq = item.indexOf("=");
+  if (eq <= 0) return scalarTex(item);
+  const name = item.slice(0, eq).trim() === "omega" ? "\\omega" : item.slice(0, eq).trim();
+  const rhs = item.slice(eq + 1).trim();
+  const column = rhs.match(/^Matrix\(\[\s*([^[\],]+)\s*,\s*([^[\]]+)\s*\]\)$/);
+  const body = column ? `\\begin{bmatrix} ${scalarTex(column[1])} \\\\ ${scalarTex(column[2])} \\end{bmatrix}` : scalarTex(rhs);
+  return `${name} = ${body}`;
+}
+
+function scalarTex(expr: string): string {
+  return expr
+    .trim()
+    .replace(/sqrt\(([^()]+)\)/g, "\\sqrt{$1}")
+    .replace(/(^|[^A-Za-z])pi(?![A-Za-z])/g, "$1\\pi")
+    .replace(/\*/g, "");
+}
+
 function SourceLinks({ sources }: { sources: ProjectProposal["sources"] }) {
-  const seen = new Set<string>();
-  const items = sources.filter((source) => {
-    const key = `${source.bookId}:${source.chapterId}`;
-    if (!source.bookId || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  if (items.length === 0) return null;
+  const groups = chapterGroups(sources);
+  const count = groups.reduce((sum, group) => sum + group.chapters.length, 0);
+  if (count === 0) return null;
+  const noun = count === 1 ? "chapter" : "chapters";
+  const summary = groups.length === 1 ? `${groups[0]?.bookTitle} · ${count} ${noun}` : `${count} ${noun}`;
   return (
-    <span className="project-sources">
-      {items.map((source, index) => (
-        <span key={`${source.bookId}-${source.chapterId}`}>
-          {index > 0 && ", "}
-          <Link to={`/books/${source.bookId}`}>{source.bookTitle || "Book"}</Link>
-          {source.chapterTitle ? <span> · {source.chapterTitle}</span> : null}
-        </span>
+    <details className="project-chapters">
+      <summary>{summary}</summary>
+      {groups.map((group) => (
+        <div key={group.bookId} className="project-source">
+          {groups.length > 1 && <Link to={`/books/${group.bookId}`}>{group.bookTitle}</Link>}
+          <ul className="project-chapter-list">
+            {group.chapters.map((chapter) => (
+              <li key={chapter.id}>
+                <Link to={`/books/${group.bookId}/read?chapter=${chapter.id}`}>{chapter.title}</Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       ))}
-    </span>
+    </details>
   );
+}
+
+function chapterGroups(sources: ProjectProposal["sources"]): { bookId: string; bookTitle: string; chapters: { id: string; title: string }[] }[] {
+  const groups: { bookId: string; bookTitle: string; chapters: { id: string; title: string }[] }[] = [];
+  const seen = new Set<string>();
+  for (const source of sources) {
+    if (!source.bookId || !source.chapterId) continue;
+    const key = `${source.bookId}:${source.chapterId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let group = groups.find((item) => item.bookId === source.bookId);
+    if (!group) {
+      group = { bookId: source.bookId, bookTitle: source.bookTitle || "Book", chapters: [] };
+      groups.push(group);
+    }
+    group.chapters.push({ id: source.chapterId, title: source.chapterTitle || source.locator || "Chapter" });
+  }
+  return groups;
 }
 
 function findChapter(options: Options | null, chapterId: string) {

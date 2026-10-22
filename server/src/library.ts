@@ -81,6 +81,22 @@ export function saveLibraryFolder(db: Db, folder: string): ReturnType<typeof des
   return describeLibrary(db);
 }
 
+export function saveUploadedLibraryPdf(db: Db, bookId: string, originalName: string, bytes: Buffer): string | null {
+  const root = libraryRoot(db);
+  if (!root || !fs.existsSync(root) || !fs.statSync(root).isDirectory()) return null;
+  const base = path.basename(originalName).replace(/[^\w.\- ()[\]]+/g, "_");
+  if (!base.toLowerCase().endsWith(".pdf") || base === ".pdf") return null;
+  let name = base;
+  let dest = path.join(root, name);
+  if (fs.existsSync(dest)) {
+    name = `${base.slice(0, -4)}-${bookId.slice(0, 8)}.pdf`;
+    dest = path.join(root, name);
+  }
+  fs.writeFileSync(dest, bytes);
+  attachLibraryFilename(db, bookId, name);
+  return name;
+}
+
 export function attachBookPdf(db: Db, bookId: string, filename: string) {
   const root = requireRoot(db);
   resolveInsideLibrary(root, filename);
@@ -117,7 +133,7 @@ export async function importChaptersFromAttachedPdf(
       sourceId: null,
       provenanceLabel: extracted.provenanceLabel,
       message:
-        "This PDF has no bookmark chapter list, and the opening pages did not contain numbered headings. Add chapters manually, or paste a contents list. Nothing was invented.",
+        "This PDF has no bookmark chapter list, and the opening pages did not contain numbered headings. Nothing was invented. Add chapters in the preview.",
     };
   }
   const source = insertSource(db, {

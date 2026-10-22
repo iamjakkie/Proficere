@@ -8,21 +8,24 @@ import {
   AppError,
   hasProse,
   isSubstantialChapter,
+  milestoneChapterIds,
   FIXTURE_AUTHOR,
   FIXTURE_BOOK_TITLE,
   FIXTURE_SOURCE,
   OutlineChapterSchema,
+  chooseImportedBook,
   enrichOutline,
+  titleIsPlaceholder,
   assessmentLabel,
   assessmentLabelText,
   ProjectProposalSchema,
   validateVerificationPlan,
 } from "@progress-island/shared";
 import { aiConfigured, config } from "./config.js";
-import { scheduleReadingFollowups } from "./reading-followup.js";
+import { generateMilestoneExam, readingExamFailure, scheduleReadingFollowups } from "./reading-followup.js";
 import type { Db } from "./db.js";
 import { searchCatalog } from "./catalog.js";
-import { extractPdfText, PDF_LIMITS } from "./pdf.js";
+import { extractChaptersFromPdf, extractPdfText, PDF_LIMITS } from "./pdf.js";
 import {
   contentTypeForCover,
   coverFilePath,
@@ -41,8 +44,10 @@ import {
   describeLibrary,
   importChaptersFromAttachedPdf,
   saveLibraryFolder,
+  saveUploadedLibraryPdf,
 } from "./library.js";
 import {
+  extractBookWithAi,
   extractOutlineWithAi,
   generateReviewPackWithAi,
   getAiStatus,
@@ -61,7 +66,6 @@ import {
   findBatch,
   findReview,
   finishProject,
-  focusedProject,
   getProject,
   getReview,
   getSubmission,
@@ -95,6 +99,7 @@ import {
   exportBackup,
   filterGroundedOutline,
   getBook,
+  updateBookDetails,
   getChapter,
   getSource,
   insertSource,
@@ -129,6 +134,11 @@ import {
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: PDF_LIMITS.maxBytes },
+});
+
+const uploadBookPdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: PDF_LIMITS.libraryMaxBytes },
 });
 
 function examsForBook(db: Db, bookId: string) {
@@ -168,6 +178,107 @@ function projectLabelText(label: string): string {
     return assessmentLabelText(label);
   }
   return assessmentLabelText("unverified");
+}
+
+function gateWithFailure<T extends { chapterId: string }>(gate: T | null): (T & { failure: string | null }) | null {
+  if (!gate) return null;
+  return { ...gate, failure: readingExamFailure(gate.chapterId) };
+}
+
+async function importSelectedPdf(
+  db: Db,
+  file: { buffer: Buffer; originalname: string } | undefined,
+  consentRaw: unknown,
+  bookId?: string,
+) {
+  if (!file) throw new AppError("Choose a PDF file.", "missing_file", 400);
+  const consent = consentRaw === true || String(consentRaw ?? "") === "true";
+  requireConsent({ consent });
+  if (!aiConfigured()) {
+    throw new AppError(
+      "Configure OpenRouter to read the title and chapters from a PDF. Set OPENROUTER_API_KEY and OPENROUTER_MODEL in your local .env file.",
+      "missing_config",
+      400,
+    );
+  }
+  const extracted = await extractChaptersFromPdf(file.buffer, file.originalname);
+  const readable = extracted.text.replace(/--- PDF page \d+ ---/g, "").trim();
+  if (readable.length < 40 && extracted.outline.length < 2) {
+    throw new AppError(
+      "This PDF looks image-only or has no extractable text. OCR is not supported, so a scan cannot supply a title or chapter list.",
+      "pdf_image_only",
+      400,
+    );
+  }
+  let ai: Awaited<ReturnType<typeof extractBookWithAi>> | null = null;
+  let modelNote = "";
+  if (readable.length >= 40) {
+    try {
+      ai = await extractBookWithAi(extracted.text);
+    } catch (error) {
+      if (extracted.outline.length < 2) throw error;
+      modelNote = error instanceof Error ? error.message : "The model did not read this PDF.";
+    }
+  }
+  const chosen = chooseImportedBook({
+    filename: file.originalname,
+    sourceText: extracted.text,
+    localOutline: extracted.outline,
+    ai,
+  });
+  const outline = enrichOutline(chosen.outline, extracted.text);
+  const existing = bookId ? getBook(db, bookId) : null;
+  const book = existing
+    ? updateBookDetails(db, existing.id, {
+        title: titleIsPlaceholder(existing.title, file.originalname) ? chosen.title : existing.title,
+        author: existing.author ?? chosen.author,
+      })
+    : createBook(db, {
+        title: chosen.title,
+        author: chosen.author,
+        contentsAvailable: outline.length > 0,
+      });
+  const provenanceLabel = ai
+    ? `${extracted.provenanceLabel}. Title and chapters checked against the PDF text with OpenRouter.`
+    : extracted.provenanceLabel;
+  const source = insertSource(db, {
+    bookId: book.id,
+    provenanceType: "uploaded",
+    provenanceLabel,
+    text: extracted.text,
+    filename: file.originalname,
+    pageLocator: extracted.outline.some((chapter) => chapter.pdfPageStart != null)
+      ? "PDF bookmark destinations"
+      : `Opening pages of ${file.originalname}`,
+    aiConsentAt: nowIso(),
+    outline,
+  });
+  let savedName: string | null = null;
+  let copyNote = "";
+  try {
+    savedName = saveUploadedLibraryPdf(db, book.id, file.originalname, file.buffer);
+  } catch {
+    copyNote = "The chapter preview is ready, but the PDF could not be copied into the library folder.";
+  }
+  const libraryNote = savedName
+    ? `The PDF is attached as ${savedName}.`
+    : copyNote || "Set a library folder and attach this PDF to read it.";
+  const chapterNote =
+    outline.length > 0
+      ? "Review the chapter preview before saving."
+      : "No chapter list was found in the PDF bookmarks or the opening pages. Nothing was invented. Add chapters in the preview.";
+  const titleNote =
+    !existing && chosen.titleFromFile
+      ? "The title is the filename because the opening pages did not contain a title that could be checked."
+      : "";
+  return {
+    book,
+    sourceId: source.id,
+    outline,
+    provenanceLabel,
+    needsConfirmation: true,
+    message: [chapterNote, titleNote, libraryNote, modelNote].filter(Boolean).join(" "),
+  };
 }
 
 function requireConsent(body: { consent?: boolean }): void {
@@ -348,6 +459,24 @@ export function createApp(db: Db): Express {
   );
 
   app.post(
+    "/api/books/from-pdf",
+    uploadBookPdf.single("file"),
+    asyncHandler(async (req, res) => {
+      const result = await importSelectedPdf(db, req.file, req.body?.consent);
+      res.status(201).json(result);
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/from-pdf",
+    uploadBookPdf.single("file"),
+    asyncHandler(async (req, res) => {
+      const result = await importSelectedPdf(db, req.file, req.body?.consent, req.params.id);
+      res.json(result);
+    }),
+  );
+
+  app.post(
     "/api/books/fixture",
     asyncHandler(async (_req, res) => {
       const book = createBook(db, {
@@ -491,7 +620,30 @@ export function createApp(db: Db): Express {
         book: result.book,
         chapters: result.chapters,
         examLock: result.examLock,
-        examGate: result.examGate,
+        examGate: gateWithFailure(result.examGate),
+      });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/reading/exam",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          page: z.number().int().positive(),
+          pageCount: z.number().int().positive(),
+          chapterId: z.string().uuid(),
+        })
+        .parse(req.body);
+      const chapters = listChapters(db, req.params.id);
+      const ids = milestoneChapterIds(chapters, body.chapterId);
+      await generateMilestoneExam(db, ids.length > 0 ? ids : [body.chapterId]);
+      const result = recordReading(db, req.params.id, body.page, body.pageCount);
+      res.json({
+        book: result.book,
+        chapters: result.chapters,
+        examLock: result.examLock,
+        examGate: gateWithFailure(result.examGate),
       });
     }),
   );
@@ -507,7 +659,7 @@ export function createApp(db: Db): Express {
       res.json({
         hits,
         note:
-          "Catalog metadata is not a table of contents. Confirm the edition. If contents are unavailable, upload or paste a source.",
+          "Catalog metadata is not a table of contents. Confirm the edition. If contents are unavailable, select the PDF.",
       });
     }),
   );
@@ -868,11 +1020,9 @@ export function createApp(db: Db): Express {
   );
 
   app.get("/api/projects/options", (_req, res) => {
-    const focused = focusedProject(db);
     const batch = latestBatch(db);
     res.json({
       books: projectOptions(db),
-      focused: focused ? presentProject(focused) : null,
       projects: listProjects(db).map(presentProject),
       batch: batch ? presentBatch(batch) : null,
     });
@@ -986,10 +1136,9 @@ export function createApp(db: Db): Express {
         .object({
           batchId: z.string().uuid(),
           proposalId: z.string().min(1),
-          setAside: z.boolean().optional(),
         })
         .parse(req.body);
-      const project = acceptProposal(db, body.batchId, body.proposalId, Boolean(body.setAside));
+      const project = acceptProposal(db, body.batchId, body.proposalId);
       res.status(201).json({ project: presentProject(project), plan: validateVerificationPlan(project.brief.criteria) });
     }),
   );
@@ -1233,7 +1382,7 @@ export function createApp(db: Db): Express {
     }
     if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
       res.status(400).json({
-        error: "PDF is larger than 8 MB. Paste a table of contents instead.",
+        error: "That file is larger than the upload limit.",
         code: "pdf_too_large",
       });
       return;

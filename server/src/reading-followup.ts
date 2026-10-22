@@ -9,7 +9,6 @@ import { suggestProjectsWithAi } from "./project-ai.js";
 import {
   acceptProposal,
   buildSuggestionContext,
-  focusedProject,
   saveBatch,
 } from "./project-store.js";
 import { fetchSectionFromSite } from "./site-chapter.js";
@@ -28,6 +27,26 @@ import {
 
 let tail: Promise<void> = Promise.resolve();
 const unusable = new Set<string>();
+const examFailures = new Map<string, string>();
+const examRunning = new Set<string>();
+
+export function readingExamFailure(chapterId: string): string | null {
+  return examFailures.get(chapterId) ?? null;
+}
+
+/** Writes the milestone exam and waits. A failed attempt is remembered until this is called again. */
+export async function generateMilestoneExam(db: Db, chapterIds: string[]): Promise<void> {
+  const primary = chapterIds[0];
+  if (!primary) return;
+  examFailures.delete(primary);
+  try {
+    await ensureExam(db, chapterIds);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The exam was not created.";
+    examFailures.set(primary, message);
+    console.error(`Reading follow-up failed: ${message}`);
+  }
+}
 
 /** Reviews and milestone exams run after the page is saved. A missing source skips quietly. */
 export function scheduleReadingFollowups(db: Db, followups: ReadingFollowups): void {
@@ -37,10 +56,13 @@ export function scheduleReadingFollowups(db: Db, followups: ReadingFollowups): v
   tail = tail
     .then(async () => {
       for (const chapterId of reviewIds) await ensureReview(db, chapterId);
-      if (examIds.length > 0) await ensureExam(db, examIds);
+      const examId = examIds[0];
+      if (examId && !examFailures.has(examId)) await ensureExam(db, examIds);
     })
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : "unknown error";
+      const examId = examIds[0];
+      if (examId) examFailures.set(examId, message);
       console.error(`Reading follow-up failed: ${message}`);
     });
 }
@@ -71,13 +93,26 @@ async function ensureReview(db: Db, chapterId: string): Promise<void> {
 
 async function ensureExam(db: Db, chapterIds: string[]): Promise<void> {
   const primary = chapterIds[0];
-  if (!primary || !aiConfigured() || examAlreadyExists(db, primary)) return;
+  if (!primary || examRunning.has(primary) || !aiConfigured() || examAlreadyExists(db, primary)) return;
+  examRunning.add(primary);
+  try {
+    await writeMilestoneExam(db, chapterIds);
+  } finally {
+    examRunning.delete(primary);
+  }
+}
+
+async function writeMilestoneExam(db: Db, chapterIds: string[]): Promise<void> {
+  const primary = chapterIds[0];
+  if (!primary) return;
   let grounded = false;
   for (const chapterId of chapterIds) {
     const loaded = await loadChapterText(db, chapterId);
     if (loaded) grounded = true;
   }
-  if (!grounded) return;
+  if (!grounded) {
+    throw new Error("This section did not have enough text to write an exam.");
+  }
   const context = buildSuggestionContext(db, {
     chapterIds,
     goal: "Check the chapter that was just finished.",
@@ -88,7 +123,7 @@ async function ensureExam(db: Db, chapterIds: string[]): Promise<void> {
   });
   const proposals = await suggestProjectsWithAi(context.packet, context.corpus);
   const exam = proposals.find((proposal) => proposal.exam);
-  if (!exam) return;
+  if (!exam) throw new Error("The model did not return a usable project suggestion.");
   const batch = saveBatch(
     db,
     context.hash,
@@ -102,13 +137,7 @@ async function ensureExam(db: Db, chapterIds: string[]): Promise<void> {
     },
     proposals,
   );
-  const focused = focusedProject(db);
-  const project = acceptProposal(db, batch.id, exam.id, Boolean(focused));
-  if (focused) {
-    const ts = new Date().toISOString();
-    db.prepare("UPDATE projects SET status = 'active', updated_at = ? WHERE id = ?").run(ts, focused.id);
-    db.prepare("UPDATE projects SET status = 'paused', updated_at = ? WHERE id = ?").run(ts, project.id);
-  }
+  acceptProposal(db, batch.id, exam.id);
 }
 
 function examAlreadyExists(db: Db, chapterId: string): boolean {
@@ -137,8 +166,14 @@ async function loadChapterText(
         : chapter.pdfPageStart;
     const note = `pdf-pages:${chapter.pdfPageStart}-${end}`;
     if (chapter.sourceDocumentId) {
-      const existing = getSource(db, chapter.sourceDocumentId);
-      if (String(existing.edition_note ?? "") === note && usable(String(existing.text ?? ""), chapter.title)) {
+      const existing = db
+        .prepare("SELECT * FROM source_documents WHERE id = ?")
+        .get(chapter.sourceDocumentId) as Record<string, unknown> | undefined;
+      if (
+        existing &&
+        String(existing.edition_note ?? "") === note &&
+        usable(String(existing.text ?? ""), chapter.title)
+      ) {
         return {
           text: String(existing.text),
           sourceId: chapter.sourceDocumentId,

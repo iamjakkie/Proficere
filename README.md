@@ -7,8 +7,9 @@ A single-user, web-first learning companion for local use on a Mac. Add a book, 
 ## Requirements
 
 - Node.js 20+
+- [uv](https://docs.astral.sh/uv/) and Python 3.12+, used by the SymPy checker the first time you run a derivation
 - A Mac for the documented local POC
-- Optional: an [OpenRouter](https://openrouter.ai) account, API key, and model identifier for extraction and review generation
+- Optional: an [OpenRouter](https://openrouter.ai) account, API key, and model identifier for extraction, exams, and review generation
 
 Book search, manual chapters, progress tracking, the island, and backup work without a key.
 
@@ -48,14 +49,21 @@ Never put the key in frontend code, backups, or git.
 
 ## Everyday use
 
-1. Load the first library with `npm run db:seed` (navigation, estimation, vision, fusion), or add a book by catalog search, PDF, paste, or the labelled Navigation Notes fixture.
-2. Confirm the edition, then edit the chapter preview and save it. Catalog metadata is not a table of contents, and chapters are not saved until you confirm that preview.
+1. Load the first library with `npm run db:seed` (navigation, estimation, vision, fusion), or add a book by catalog search, by selecting its PDF, or with the labelled Navigation Notes fixture.
+2. Confirm the edition. If Open Library has no contents list, select the PDF on the add-book page or on the book page. With consent, the opening pages go to OpenRouter. The title and chapters come from the PDF bookmarks and those pages. A title already saved from the catalog stays. You edit the chapter preview and save it; chapters are not stored before that confirmation. A pasted contents list remains under **Paste a contents list instead**.
 3. Select the chapters that belong in the plan.
-4. Log 50% or complete in two clicks. Undo restores the previous reading state.
-5. In Settings, point the PDF library at the folder of your books and attach the matching PDF on the book page. Open PDF reads that file in the app and saves progress from the furthest page you open. When a chapter knows its PDF pages, only that chapter moves; otherwise the book tracks how far into the file you have gone. After a chapter is completed, generate a review pack (consent required). The app reads that chapter from the PDF instead of using the title alone.
+4. Log 50% or complete in two clicks. Undo restores the previous reading state. Reaching the next part of a book asks for an exam on the part you just finished.
+5. In Settings, point the PDF library at the folder of your books. Selecting a PDF copies it into that folder and attaches it when the folder is set. Open PDF reads that file in the app and saves progress from the furthest page you open. When a chapter knows its PDF pages, only that chapter moves; otherwise the book tracks how far into the file you have gone. After a chapter is completed, generate a review pack (consent required). The app reads that chapter from the PDF instead of using the title alone.
 6. Inspect passages, edit, reject, or report a poor item, answer the quiz (scored on the server), and note the next due date (1 / 3 / 7 / 14 days, or 1 day after a weak result).
-7. Each book is one voxel tree on a still, slightly rounded patch of earth. Chapter progress, weighted by page span when pages are known, sets how tall that tree grows. A later grouping can set `identifiers.treeGroup` to change the tree type.
-8. Export JSON backup from Settings. `npm run db:backup` also writes a file under `data/`.
+7. Open Projects for an exam grounded in the chapters you read. The chapter list stays closed until you open it. A plane problem draws the points from the exam data. Run checks the calculation with SymPy. Submit sends it for a grade after you consent.
+8. Each book is one voxel tree on a still, slightly rounded patch of earth. Chapter progress, weighted by page span when pages are known, sets how tall that tree grows. A later grouping can set `identifiers.treeGroup` to change the tree type.
+9. Export JSON backup from Settings. `npm run db:backup` also writes a file under `data/`.
+
+## Calculations
+
+Each line in an exam is a calculation, such as `relation = Eq(x, y + 1)`. SymPy's mathematical names are available. A name is the SymPy function when you call it, and a symbol when you write it on its own. `from sympy import Name` adds another SymPy name, including a one-letter name such as `N`.
+
+The checker parses the text as calculation data. Two results match when SymPy finds them equal, including a rewritten equation such as `Eq(x - y, 1)`. Plotting and printing names are unavailable. An exam that needs numbers states those numbers in the prompt or the given data.
 
 ## Persistence
 
@@ -63,12 +71,9 @@ SQLite lives at `data/progress-island.db` by default (gitignored). Schema migrat
 
 ## PDF limits (POC)
 
-Uploads through the browser:
+Selecting a PDF accepts a file up to 150 MB. Bookmarks and the first opening pages supply the title and chapter list. The in-app reader opens an attached file one page at a time, up to 800 pages.
 
-- 8 MB
-- 40 pages
-
-A PDF library folder (`LIBRARY_PATH` in `.env`, or Settings) can hold full books up to 150 MB and 800 pages. Attach a file on the book page; chapters are read from the PDF bookmarks when present, otherwise from numbered headings in the opening pages. The in-app reader opens the attached file one page at a time. Review generation still reads only the matching chapter, up to 40 PDF pages, and only from text-based PDFs. Image-only scans can be viewed, but their text needs a paste; OCR is out of scope.
+A PDF library folder (`LIBRARY_PATH` in `.env`, or Settings) is where that file is kept. Review generation still reads only the matching chapter, up to 40 PDF pages, and only from text-based PDFs. A scanned PDF can be viewed. Its pages have no text to extract, and OCR is out of scope.
 
 ## Tests
 
@@ -76,19 +81,20 @@ A PDF library folder (`LIBRARY_PATH` in `.env`, or Settings) can hold full books
 npm test
 ```
 
-Covers progress math, review scheduling, quote grounding, outline extraction from the fixture, reward idempotency, quiz scoring, backup restore, and disabled AI without a key.
+Covers progress math, review scheduling, quote grounding, outline extraction from the fixture, reward idempotency, quiz scoring, backup restore, PDF chapter choice, the SymPy derivation checker, and disabled AI without a key.
 
 ## Architecture
 
 - `client/` React + Vite + Three.js island
 - `server/` Express + SQLite + OpenRouter adapter
 - `shared/` Zod schemas and domain rules
+- `checker/` SymPy derivation checker, run with uv
 
 One repo, one backend process, localhost by default. Do not expose this unauthenticated library on a public host.
 
 ## Known limitations
 
-- Catalog contents exist only when Open Library has a table of contents for the selected edition. Otherwise paste a source or attach the PDF from your library folder.
+- Catalog contents exist only when Open Library has a table of contents for the selected edition. Otherwise select the PDF. A scanned file cannot supply a title or chapter list.
 - Chapter text is found by searching the PDF for the confirmed chapter title. A title that does not appear in the file cannot be grounded.
 - OpenRouter review quality depends on the model you choose; grounding checks reject quotes that are not in the source, not factual correctness.
 - No background reminders while the Mac server is stopped.

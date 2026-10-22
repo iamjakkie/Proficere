@@ -247,6 +247,22 @@ const ExtractedOutlineSchema = z.object({
   chapters: z.array(OutlineChapterSchema),
 });
 
+const ExtractedBookSchema = z.object({
+  title: z.string().optional().default(""),
+  author: z.string().nullable().optional().default(null),
+  chapters: z.array(OutlineChapterSchema).optional().default([]),
+});
+
+export async function extractBookWithAi(sourceText: string) {
+  return chatJson(
+    ExtractedBookSchema,
+    `You identify one book from PDF opening pages and any bookmark list included in the text.
+Return JSON {"title":string,"author":string|null,"chapters":[{"number":string|null,"title":string,"pageStart":string|null,"pageEnd":string|null}]}.
+Use only a title, author, and chapter titles that appear in the supplied text. Never invent a chapter. If the title or author is not in the text, use an empty title or null author. If a page number is not evidenced, use null.`,
+    sourceText.slice(0, 24_000),
+  );
+}
+
 export async function extractOutlineWithAi(sourceText: string): Promise<
   z.infer<typeof OutlineChapterSchema>[]
 > {

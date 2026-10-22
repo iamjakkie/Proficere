@@ -1,5 +1,5 @@
 import type { CriterionCheck, ProjectProposal } from "@progress-island/shared";
-import { parseDerivation } from "@progress-island/shared";
+import { parseDerivation, sympyImports } from "@progress-island/shared";
 import { checkDerivation } from "./derivation-check.js";
 import { gradeExamWithAi } from "./project-ai.js";
 
@@ -68,10 +68,13 @@ export async function reviewExam(input: {
     };
   }
   const report = await checkDerivation({
-    steps: parsed.steps,
+    steps: parsed.steps
+      .filter((step) => step.error === null && !step.declaration)
+      .map((step) => ({ line: step.line, name: step.name, expr: step.expr })),
     target: exam.target,
     reference: exam.reference,
     required: exam.required,
+    imports: parsed.imports,
   });
   if (!report.ok) {
     return {
@@ -199,31 +202,21 @@ export async function previewExam(brief: ProjectProposal, deliverable: string): 
   const exam = brief.exam;
   const target = exam?.target ?? "";
   const requiredTotal = exam?.required.length ?? 0;
-  if (!exam?.reference?.trim()) {
-    return {
-      error: null,
-      operational: "The derivation checker has no reference for this exam.",
-      target,
-      summary: "",
-      steps: [],
-      requiredFound: 0,
-      requiredTotal,
-    };
-  }
   const parsed = parseDerivation(deliverable);
   if (parsed.error) {
     return { error: parsed.error, operational: null, target, summary: parsed.error, steps: [], requiredFound: 0, requiredTotal };
   }
-  const runnable = parsed.steps.filter((step) => step.error === null);
+  const runnable = parsed.steps.filter((step) => step.error === null && !step.declaration);
   const report = runnable.length
     ? await checkDerivation({
         steps: runnable.map((step) => ({ line: step.line, name: step.name, expr: step.expr })),
-        target: exam.target,
-        reference: exam.reference,
-        required: exam.required,
+        target,
+        reference: exam?.reference ?? "",
+        required: exam?.required ?? [],
+        imports: parsed.imports,
       })
     : null;
-  if (report && !report.ok) {
+  if (report && !report.ok && report.steps.length === 0) {
     return {
       error: null,
       operational: report.error ?? "The derivation checker did not finish.",
@@ -234,9 +227,19 @@ export async function previewExam(brief: ProjectProposal, deliverable: string): 
       requiredTotal,
     };
   }
-  const secrets = [exam.reference, ...exam.required];
+  const secrets = [exam?.reference ?? "", ...(exam?.required ?? [])];
   let cursor = 0;
   const steps = parsed.steps.map((step) => {
+    if (step.declaration) {
+      const unknown = (report?.unknownImports ?? []).find((name) => sympyImports(step.shown)?.includes(name));
+      return {
+        line: step.line,
+        name: step.shown,
+        status: unknown ? ("failed" as const) : ("passed" as const),
+        explanation: unknown ? `${unknown} is not in SymPy.` : step.error ?? "Declared.",
+        value: null,
+      };
+    }
     if (step.error || !report) {
       return {
         line: step.line,
@@ -257,20 +260,26 @@ export async function previewExam(brief: ProjectProposal, deliverable: string): 
     };
   });
   const final = [...steps].reverse().find((step) => step.name === target && step.status === "passed" && step.value);
+  const targetStep = [...steps].reverse().find((step) => step.name === target);
   const requiredFound = report?.required.filter((item) => item.status === "passed").length ?? 0;
+  const ran = steps.filter((step) => step.status === "passed" && step.value).length;
+  const ranText = `Ran ${ran} ${ran === 1 ? "calculation" : "calculations"}.`;
   const summary = !report
     ? (steps[0]?.explanation ?? "Write a calculation to run.")
-    : !final
-      ? `Assign the final value to ${target}.`
-      : report.targetMatches
-        ? `${target} = ${final.value}. This matches the exam.`
-        : `${target} = ${final.value}. This does not match the exam.`;
-  const counted = requiredTotal > 0 ? ` Required steps found: ${requiredFound} of ${requiredTotal}.` : "";
+    : ran === 0
+      ? (steps[0]?.explanation ?? "Write a calculation to run.")
+      : targetStep?.status === "failed"
+        ? `${ranText} ${targetStep.explanation}`
+        : !final
+          ? `${ranText} ${target} was not assigned.`
+          : report.targetMatches
+            ? `${ranText} ${target} = ${final.value}.`
+            : `${ranText} ${target} = ${final.value}. This does not match the exam.`;
   return {
     error: null,
-    operational: null,
+    operational: report?.error ?? null,
     target,
-    summary: summary + counted,
+    summary,
     steps,
     requiredFound,
     requiredTotal,

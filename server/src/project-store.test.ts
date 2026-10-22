@@ -2,9 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import request from "supertest";
 import { AppError, applyGrounding, assessmentLabel, type ProjectProposal } from "@progress-island/shared";
-import { createApp } from "./app.js";
 import { openDatabase } from "./db.js";
 import {
   acceptProposal,
@@ -14,6 +12,7 @@ import {
   corpusForChapters,
   dismissSuggestion,
   findBatch,
+  getProject,
   getSubmission,
   latestBatch,
   objectiveResultsFor,
@@ -158,7 +157,7 @@ describe("project process", () => {
     expect(topic.grounding).toBe("topic_based");
   });
 
-  it("freezes a version, blocks a second focus, and keeps submission history", async () => {
+  it("freezes a version, keeps another book's exam active, and keeps submission history", () => {
     const h = tempDb();
     handles.push(h);
     const kalman = seedSection(h.db, "Scalar gain", KALMAN);
@@ -176,13 +175,7 @@ describe("project process", () => {
     const kalmanBrief = applyGrounding(briefFor(kalman.id, "Scalar gain", "1/2", "0.5"), corpusForChapters(h.db, [kalman.id]));
     const batch = saveBatch(h.db, context.hash, { chapterIds: [kalman.id] }, [kalmanBrief]);
     expect(findBatch(h.db, context.hash)?.id).toBe(batch.id);
-    const project = acceptProposal(h.db, batch.id, kalmanBrief.id, false);
-    const app = createApp(h.db);
-    const blocked = await request(app)
-      .post("/api/projects")
-      .send({ batchId: batch.id, proposalId: kalmanBrief.id });
-    expect(blocked.status).toBe(409);
-
+    const project = acceptProposal(h.db, batch.id, kalmanBrief.id);
     const version = approveProject(h.db, project.id, "objective");
     expect(version.versionNumber).toBe(1);
     expect(version.sourceSnapshot[0]?.sourceHash).toBe(kalmanBrief.sources[0]?.sourceHash);
@@ -220,8 +213,10 @@ describe("project process", () => {
       corpusForChapters(h.db, [algebra.id]),
     );
     const algebraBatch = saveBatch(h.db, "algebra-context", { chapterIds: [algebra.id] }, [algebraBrief]);
-    const algebraProject = acceptProposal(h.db, algebraBatch.id, algebraBrief.id, true);
+    const algebraProject = acceptProposal(h.db, algebraBatch.id, algebraBrief.id);
     const algebraVersion = approveProject(h.db, algebraProject.id, "objective");
+    expect(getProject(h.db, project.id).status).toBe("active");
+    expect(getProject(h.db, algebraProject.id).status).toBe("active");
     const algebraSubmission = addSubmission(h.db, algebraProject.id, {
       explanation: "x = -b / a with a = 2 and b = -4.",
       assumptions: "a is not zero.",
@@ -250,7 +245,7 @@ describe("project process", () => {
       },
     ];
     const batch = saveBatch(h.db, "exec", {}, [brief]);
-    const project = acceptProposal(h.db, batch.id, brief.id, false);
+    const project = acceptProposal(h.db, batch.id, brief.id);
     expect(() => approveProject(h.db, project.id, "objective")).toThrow(AppError);
     const version = approveProject(h.db, project.id, "ai_reviewed");
     expect(version.assessmentMode).toBe("ai_reviewed");

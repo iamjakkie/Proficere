@@ -4,14 +4,31 @@ export type DerivationStep = {
   expr: string;
   shown: string;
   error: string | null;
+  declaration?: boolean;
 };
 
 export type ParsedDerivation = {
   steps: DerivationStep[];
   assumptions: string[];
   notes: { line: number; text: string }[];
+  imports: string[];
   error: string | null;
 };
+
+/** `from sympy import Eq, solve` names. A star import asks for the names already available. */
+export function sympyImports(line: string): string[] | null {
+  const trimmed = line.trim();
+  if (trimmed === "from sympy import *") return [];
+  const match = trimmed.match(/^from\s+sympy\s+import\s+(.+)$/);
+  if (!match) return null;
+  const names: string[] = [];
+  for (const part of match[1].split(",")) {
+    const name = part.trim();
+    if (!NAME.test(name)) return null;
+    names.push(name);
+  }
+  return names;
+}
 
 const SAFE = /^[A-Za-z0-9_+\-*/^().,\s<>[\].]+$/;
 const NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -255,7 +272,8 @@ function splitAssign(text: string): { name: string; expr: string } | { expr: str
 }
 
 export function parseDerivation(source: string): ParsedDerivation {
-  const empty: ParsedDerivation = { steps: [], assumptions: [], notes: [], error: null };
+  const empty: ParsedDerivation = { steps: [], assumptions: [], notes: [], imports: [], error: null };
+  const imports: string[] = [];
   if (source.includes("__")) {
     return { ...empty, error: "This derivation uses a form the checker does not read." };
   }
@@ -267,6 +285,31 @@ export function parseDerivation(source: string): ParsedDerivation {
     const line = raw.trim();
     const lineNo = index + 1;
     if (!line || isDelimiter(line)) return;
+    if (isPrelude(line)) {
+      const imported = line.trim().startsWith("from sympy import") ? sympyImports(line) : null;
+      if (line.trim().startsWith("from sympy import") && !imported) {
+        steps.push({
+          line: lineNo,
+          name: line,
+          expr: "",
+          shown: line,
+          error: "Use from sympy import Name. Separate names with commas.",
+          declaration: true,
+        });
+      } else {
+        imports.push(...(imported ?? []));
+        steps.push({
+          line: lineNo,
+          name: line,
+          expr: "",
+          shown: line,
+          error: null,
+          declaration: true,
+        });
+      }
+      consumed.add(lineNo);
+      return;
+    }
     if (line.startsWith("#")) {
       notes.push({ line: lineNo, text: line.slice(1).trim() });
       consumed.add(lineNo);
@@ -319,16 +362,17 @@ export function parseDerivation(source: string): ParsedDerivation {
       });
     }
   }
-  if (steps.length === 0) {
-    return { ...empty, assumptions, notes, error: "Write a calculation to run." };
+  if (!steps.some((step) => !step.declaration)) {
+    return { ...empty, assumptions, notes, imports, error: "Write a calculation to run." };
   }
-  return { steps, assumptions, notes, error: null };
+  steps.sort((left, right) => left.line - right.line);
+  return { steps, assumptions, notes, imports, error: null };
 }
 
 export function seedCalculations(given: string[]): string {
   const parsed = parseDerivation(given.join("\n"));
   return parsed.steps
-    .filter((step) => step.error === null && step.shown === step.name)
+    .filter((step) => step.error === null && !step.declaration && step.shown === step.name)
     .map((step) => `${step.name} = ${step.expr}`)
     .join("\n");
 }

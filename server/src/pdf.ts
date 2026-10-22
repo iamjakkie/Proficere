@@ -34,7 +34,7 @@ export async function extractPdfText(
   const doc = await openPdf(buffer, filename, MAX_BYTES);
   if (doc.numPages > MAX_PAGES) {
     throw new AppError(
-      `This PDF has ${doc.numPages} pages (limit ${MAX_PAGES} for the POC). Upload selected chapters or paste the contents page.`,
+      `This PDF has ${doc.numPages} pages. Select it on the add-book page, which reads the opening pages of a full book.`,
       "pdf_too_many_pages",
       400,
     );
@@ -42,7 +42,7 @@ export async function extractPdfText(
   const text = await readMarkedPages(doc, 1, doc.numPages);
   if (text.replace(/--- PDF page \d+ ---/g, "").trim().length < 40) {
     throw new AppError(
-      "This PDF looks image-only or has no extractable text. OCR is not in this POC. Paste the chapter list instead.",
+      "This PDF looks image-only or has no extractable text. OCR is not supported.",
       "pdf_image_only",
       400,
     );

@@ -26,7 +26,7 @@ export async function searchCatalog(query: string): Promise<BookSearchHit[]> {
   const url = `${SEARCH_URL}?q=${encodeURIComponent(query)}&limit=8`;
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) {
-    throw new Error("Open Library search failed. You can still paste a contents list.");
+    throw new Error("Open Library search failed. You can still select a PDF.");
   }
   const body = (await res.json()) as { docs?: OlDoc[] };
   const hits: BookSearchHit[] = [];

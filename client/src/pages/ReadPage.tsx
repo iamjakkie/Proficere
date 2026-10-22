@@ -19,6 +19,7 @@ type ExamGate = {
   projectId: string | null;
   message: string;
   resumePage: number;
+  failure: string | null;
 };
 
 function pdfErrorMessage(error: unknown): string {
@@ -78,6 +79,7 @@ export function ReadPage() {
   const [stageBox, setStageBox] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
   const [examGate, setExamGate] = useState<ExamGate | null>(null);
+  const [examBusy, setExamBusy] = useState(false);
   const [placed, setPlaced] = useState(() => params.has("page"));
   const stageRef = useRef<HTMLDivElement>(null);
   const leftRef = useRef<HTMLCanvasElement>(null);
@@ -143,7 +145,7 @@ export function ReadPage() {
   }, [placed, page, spread, doc, id, book?.libraryFilename]);
 
   useEffect(() => {
-    if (!examGate || examGate.projectId || !placed || !doc || !id) return;
+    if (!examGate || examGate.projectId || examGate.failure || !placed || !doc || !id) return;
     const pageCount = doc.numPages;
     const seen = spread ? Math.min(pageCount, pairStart(page) + 1) : page;
     const timer = window.setInterval(() => {
@@ -308,6 +310,24 @@ export function ReadPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [doc, spread, examGate, page]);
 
+  async function retryExam() {
+    if (!id || !examGate || !doc) return;
+    setExamBusy(true);
+    try {
+      const seen = spread ? Math.min(doc.numPages, pairStart(page) + 1) : page;
+      const data = await api<{ examGate: ExamGate | null }>(`/api/books/${id}/reading/exam`, {
+        method: "POST",
+        body: JSON.stringify({ page: seen, pageCount: doc.numPages, chapterId: examGate.chapterId }),
+      });
+      setExamGate(data.examGate);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "The exam was not created.";
+      setExamGate((current) => (current ? { ...current, failure: message } : current));
+    } finally {
+      setExamBusy(false);
+    }
+  }
+
   function pastExam(target: number): boolean {
     return examGate != null && target > examGate.resumePage;
   }
@@ -443,17 +463,23 @@ export function ReadPage() {
           <div className="reader-gate-card">
             <h2 id="reader-gate-title">Pass this exam before continuing</h2>
             <p>{examGate.message}</p>
+            {examGate.projectId ? (
+              <p>This exam is ready.</p>
+            ) : examGate.failure ? (
+              <p>{examGate.failure} It is not in the list of exams you have already passed.</p>
+            ) : (
+              <p className="muted">This exam is still being written. It is not in your exam list yet.</p>
+            )}
             <div className="row">
-              <Link
-                className="btn primary"
-                to={
-                  examGate.projectId
-                    ? `/projects?project=${examGate.projectId}`
-                    : `/projects?book=${examGate.bookId}&chapters=${examGate.chapterId}`
-                }
-              >
-                Open the exam
-              </Link>
+              {examGate.projectId ? (
+                <Link className="btn primary" to={`/projects?project=${examGate.projectId}`}>
+                  Open the exam
+                </Link>
+              ) : (
+                <button className="btn primary" type="button" disabled={examBusy || !examGate.failure} onClick={() => void retryExam()}>
+                  {examBusy ? "Writing the exam…" : examGate.failure ? "Try again" : "Writing the exam…"}
+                </button>
+              )}
               <button className="btn" type="button" onClick={() => setPage(examGate.resumePage)}>
                 Stay on this chapter
               </button>
@@ -461,7 +487,6 @@ export function ReadPage() {
                 Back to the book
               </Link>
             </div>
-            {!examGate.projectId && <p className="muted">The exam is being written from this chapter.</p>}
           </div>
         </div>
       )}

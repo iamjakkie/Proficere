@@ -139,7 +139,7 @@ export function LibraryPage() {
       {error && <p className="banner danger">{error}</p>}
       {books.length === 0 && (
         <div className="card">
-          <p>No books yet. Search a catalog title, paste a contents list, or load the labelled fixture.</p>
+          <p>No books yet. Search a catalog title, select a PDF, or load the labelled fixture.</p>
         </div>
       )}
       {books.length > 0 && (

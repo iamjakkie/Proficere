@@ -435,11 +435,31 @@ textarea {
   font-size: 0.95rem;
 }
 
+.exam-figure {
+  margin: 4px 0 8px;
+  max-width: 640px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px 10px;
+}
+
+.exam-figure svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.exam-figure figcaption {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .exam-work {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
   gap: 12px;
-  align-items: stretch;
+  align-items: start;
 }
 
 .exam-editor {
@@ -449,8 +469,15 @@ textarea {
 }
 
 .exam-output {
-  height: 320px;
-  overflow: auto;
+  align-self: start;
+  width: 100%;
+  min-width: 0;
+  height: min(70vh, 560px);
+  max-height: min(70vh, 560px);
+  min-height: 320px;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  overscroll-behavior: contain;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -492,7 +519,7 @@ textarea {
 
 .exam-output-row {
   display: grid;
-  grid-template-columns: 2.4em minmax(0, 1fr);
+  grid-template-columns: 3em minmax(0, 1fr);
   gap: 8px;
   padding: 7px 10px;
   border-bottom: 1px solid var(--line);
@@ -516,8 +543,9 @@ textarea {
 
 .exam-output-code,
 .exam-output-value {
+  min-width: 0;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .exam-output-error {
@@ -546,17 +574,18 @@ textarea {
 .project-row {
   display: flex;
   gap: 12px;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 10px 12px;
 }
 
 .project-main {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 
 .project-title {
@@ -569,8 +598,28 @@ textarea {
   cursor: pointer;
 }
 
-.project-sources {
+.project-chapters {
   color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 100%;
+}
+
+.project-chapters summary {
+  cursor: pointer;
+  width: fit-content;
+}
+
+.project-source + .project-source {
+  margin-top: 8px;
+}
+
+.project-chapter-list {
+  margin: 6px 0 0;
+  padding-left: 1.15rem;
+}
+
+.project-chapter-list li + li {
+  margin-top: 2px;
 }
 
 .project-body {

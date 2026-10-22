@@ -194,6 +194,18 @@ export function createBook(
   return getBook(db, id);
 }
 
+export function updateBookDetails(
+  db: Db,
+  id: string,
+  input: { title?: string; author?: string | null },
+): Book {
+  const book = getBook(db, id);
+  const title = input.title?.trim() || book.title;
+  const author = input.author === undefined ? book.author : input.author;
+  db.prepare("UPDATE books SET title = ?, author = ?, updated_at = ? WHERE id = ?").run(title, author, nowIso(), id);
+  return getBook(db, id);
+}
+
 export function listChapters(db: Db, bookId: string): Chapter[] {
   return (
     db

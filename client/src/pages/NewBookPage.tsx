@@ -124,17 +124,23 @@ export function NewBookPage() {
 
   async function uploadPdf(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+    if (!consent) {
+      setError("Confirm that the opening pages may be sent to OpenRouter before selecting a PDF.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const id = await createBlank({ title: title || file.name.replace(/\.pdf$/i, "") });
       const form = new FormData();
       form.append("file", file);
-      form.append("consent", String(consent));
-      form.append("useAi", String(useAi));
-      await api(`/api/books/${id}/import/pdf`, { method: "POST", body: form });
-      navigate(`/books/${id}`);
+      form.append("consent", "true");
+      const data = await api<{ book: { id: string }; message: string }>("/api/books/from-pdf", {
+        method: "POST",
+        body: form,
+      });
+      navigate(`/books/${data.book.id}`, { state: { importMessage: data.message } });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -149,7 +155,7 @@ export function NewBookPage() {
       <div className="card stack">
         <h2>1. Search title, author, or ISBN</h2>
         <p className="muted">
-          Real Open Library retrieval. Metadata is not a table of contents. If contents are missing, you will be asked for a source.
+          Real Open Library retrieval. Metadata is not a table of contents. If a record has no contents, select the PDF.
         </p>
         <form className="row" onSubmit={search}>
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. Probabilistic Robotics" />
@@ -171,7 +177,7 @@ export function NewBookPage() {
             <div className="muted">
               {hit.author} {hit.year ? `· ${hit.year}` : ""} {hit.edition ? `· ${hit.edition}` : ""}
             </div>
-            <div>{hit.contentsAvailable ? "Contents list available for this edition" : "No contents list — you will need a PDF or paste"}</div>
+            <div>{hit.contentsAvailable ? "Contents list available for this edition" : "No contents list — select the PDF"}</div>
           </button>
         ))}
         {pendingHit && (
@@ -188,7 +194,7 @@ export function NewBookPage() {
             <p>
               {pendingHit.contentsAvailable
                 ? `Open Library lists ${pendingHit.contentsPreview?.length ?? 0} contents entries for this edition. Chapters are not saved until you confirm the preview.`
-                : "This record is metadata only. No chapter list will be invented. After saving, paste or upload a source."}
+                : "This record is metadata only. No chapter list will be invented. After saving, select the PDF and the chapters are read from the file."}
             </p>
             <div className="row">
               <button className="btn primary" type="button" disabled={busy} onClick={() => void confirmEdition()}>
@@ -203,33 +209,43 @@ export function NewBookPage() {
       </div>
 
       <div className="card stack">
-        <h2>2. Or start from a title and paste contents</h2>
-        <form className="stack" onSubmit={(e) => void pasteImport(e)}>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Book title" />
-          <textarea
-            value={paste}
-            onChange={(e) => setPaste(e.target.value)}
-            placeholder="Paste a table of contents or chapter text"
-          />
-          <label>
-            <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} /> Use
-            OpenRouter to extract headings
-          </label>
-          {useAi && (
-            <label>
-              <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> I
-              understand this text will be sent to OpenRouter and the selected model provider. A local
-              database does not keep AI processing on this Mac.
-            </label>
-          )}
-          <button className="btn primary" disabled={busy} type="submit">
-            Import pasted source
-          </button>
-        </form>
+        <h2>2. Or select the PDF</h2>
+        <p className="muted">
+          Choose the file. The title and chapters are read from its bookmarks and opening pages. You
+          confirm the chapter list before it is saved. A scanned PDF with no text cannot be read.
+        </p>
         <label>
-          Upload a text-based PDF
-          <input type="file" accept="application/pdf" onChange={(e) => void uploadPdf(e)} />
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> I
+          understand the opening pages of this PDF will be sent to OpenRouter and the selected model
+          provider. A local database does not keep AI processing on this Mac.
         </label>
+        <label>
+          Select PDF
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            disabled={!consent || busy}
+            onChange={(e) => void uploadPdf(e)}
+          />
+        </label>
+        <details>
+          <summary>Paste a contents list instead</summary>
+          <form className="stack" onSubmit={(e) => void pasteImport(e)}>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Book title" />
+            <textarea
+              value={paste}
+              onChange={(e) => setPaste(e.target.value)}
+              placeholder="Paste a table of contents or chapter text"
+            />
+            <label>
+              <input type="checkbox" checked={useAi} onChange={(e) => setUseAi(e.target.checked)} /> Use
+              OpenRouter to extract headings
+            </label>
+            <button className="btn" disabled={busy} type="submit">
+              Import pasted source
+            </button>
+          </form>
+        </details>
       </div>
 
       <div className="card">
