@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import type { BookCategory, Dashboard } from "@progress-island/shared";
 import { categoryColorCss } from "@progress-island/shared";
 import { api } from "../api";
@@ -47,8 +48,30 @@ export function DashboardPage() {
 
   return (
     <div className="island-page">
-      <IslandView trees={data.trees} categories={categories} />
+      <IslandView trees={data.trees} categories={categories} markers={data.markers} />
       <aside className="island-overlay stack">
+        {data.activeCourse && (
+          <div className="card course-resume">
+            <h2>Course in progress</h2>
+            <p>
+              <Link to={data.activeCourse.href}>{data.activeCourse.title}</Link>
+            </p>
+            <p className="muted">
+              {data.activeCourse.lessonCount === 0
+                ? "No lessons confirmed yet"
+                : `${data.activeCourse.doneCount} of ${data.activeCourse.lessonCount} lessons done`}
+              {data.activeCourse.others > 0 ? ` · ${data.activeCourse.others} more` : ""}
+            </p>
+            <p className="row-actions">
+              <Link className="btn primary" to={data.activeCourse.href}>
+                Resume
+              </Link>
+              <a className="btn" href={data.activeCourse.url} target="_blank" rel="noreferrer">
+                Open
+              </a>
+            </p>
+          </div>
+        )}
         {!data.ai.configured && (
           <div className="banner">
             Configure OpenRouter to enable AI. Tracking still works.
