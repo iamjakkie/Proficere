@@ -429,6 +429,57 @@ textarea {
   background: #f6dede;
 }
 
+.exam-exercises {
+  margin: 0;
+  padding-left: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.exam-exercises li p {
+  margin: 0;
+}
+
+.exam-task {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--card);
+}
+
+.exam-task h3 {
+  margin: 0;
+}
+
+.exam-task-work {
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 0.85fr);
+}
+
+.exam-task .exam-editor,
+.exam-written {
+  min-height: 120px;
+}
+
+.exam-task .exam-output {
+  min-height: 120px;
+  height: 180px;
+  max-height: 220px;
+}
+
+.exam-written {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
 .exam-editor,
 .exam-script {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -1093,5 +1144,161 @@ textarea {
   * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+.article-shelf {
+  border-top: 4px solid #e2b340;
+}
+
+.course-shelf,
+.course-resume {
+  border-top: 4px solid #8d8680;
+}
+
+.workbook-shelf {
+  border-top: 4px solid #7ea0c4;
+}
+
+.workshop-shelf {
+  border-top: 4px solid #c45c26;
+}
+
+.shelf-list,
+.lesson-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.shelf-list li,
+.lesson-list li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 16px;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.search-query {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92rem;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.article-shelf textarea,
+.course-shelf textarea,
+.workbook-shelf textarea,
+.workshop-shelf textarea,
+.kanban-card textarea {
+  min-height: 0;
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.board-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+}
+
+.board-head label {
+  width: min(240px, 100%);
+}
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.kanban-column {
+  background: rgba(255, 250, 241, 0.72);
+  border: 1px dashed var(--line);
+  border-radius: 16px;
+  padding: 10px;
+  min-height: 220px;
+}
+
+.kanban-column h2 {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+}
+
+.kanban-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow);
+}
+
+.kanban-card.shine {
+  background: #fff6d8;
+  box-shadow: 0 0 28px 8px rgba(255, 214, 120, 0.95);
+  animation: card-shine 1s ease;
+}
+
+@keyframes card-shine {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 214, 120, 0.2);
+  }
+  40% {
+    box-shadow: 0 0 32px 10px rgba(255, 214, 120, 0.95);
+    background: #fff3c4;
+  }
+  100% {
+    box-shadow: 0 0 18px 4px rgba(255, 214, 120, 0.55);
+  }
+}
+
+.card-title,
+.drag-handle {
+  font-weight: 700;
+  text-align: left;
+  width: auto;
+  padding: 2px 0;
+}
+
+.drag-handle {
+  display: inline-flex;
+  margin-right: 8px;
+  font-weight: 500;
+  font-size: 0.85rem;
+}
+
+.marker-fallback {
+  list-style: none;
+  padding: 0;
+}
+
+.article-reader .reader-toolbar {
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .kanban {
+    grid-template-columns: 1fr;
   }
 }
