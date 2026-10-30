@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import type { BookCategory, IslandTree } from "@progress-island/shared";
+import { Link, useNavigate } from "react-router-dom";
+import type { BookCategory, IslandMarker, IslandTree } from "@progress-island/shared";
 import { DEFAULT_TREE_TYPE, bookCategory } from "@progress-island/shared";
 import * as THREE from "three";
 import { createIslandSky } from "./islandSky";
@@ -70,13 +70,79 @@ function addBox(
   z: number,
   color: number,
   bookId?: string,
+  markerHref?: string,
+  material?: THREE.Material,
 ): void {
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK), treeMaterial(color));
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(BLOCK, BLOCK, BLOCK), material ?? treeMaterial(color));
   mesh.position.set(x, y, z);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   if (bookId) mesh.userData.bookId = bookId;
+  if (markerHref) mesh.userData.markerHref = markerHref;
   parent.add(mesh);
+}
+
+const lanternLight = new THREE.MeshLambertMaterial({
+  color: 0xf2c14e,
+  emissive: 0xf2c14e,
+  emissiveIntensity: 0.85,
+});
+
+function addLantern(group: THREE.Group, marker: IslandMarker): void {
+  const href = marker.href;
+  const height = 2 + Math.round(marker.progress * 2);
+  for (let i = 0; i < height; i++) addBox(group, 0, BLOCK * (i + 0.5), 0, 0x5c4030, undefined, href);
+  addBox(group, 0, BLOCK * (height + 0.5), 0, 0xf2c14e, undefined, href, lanternLight);
+  addBox(group, 0, BLOCK * (height + 1.4), 0, 0x3a2a22, undefined, href);
+}
+
+function addStone(group: THREE.Group, marker: IslandMarker): void {
+  const href = marker.href;
+  const layers = 2 + Math.round(marker.progress * 2);
+  for (let layer = 0; layer < layers; layer++) {
+    const reach = Math.max(0, 2 - layer);
+    const y = BLOCK * (layer + 0.5);
+    addBox(group, 0, y, 0, 0x8d8680, undefined, href);
+    for (let arm = 1; arm <= reach; arm++) {
+      addBox(group, arm * BLOCK * 0.8, y, 0, 0x6f6a64, undefined, href);
+      addBox(group, -arm * BLOCK * 0.8, y, 0, 0x6f6a64, undefined, href);
+    }
+  }
+}
+
+function addSheet(group: THREE.Group, marker: IslandMarker): void {
+  const href = marker.href;
+  const sheets = 1 + Math.round(marker.progress * 3);
+  for (let i = 0; i < sheets; i++) {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(BLOCK * 1.7, BLOCK * 0.22, BLOCK * 1.25),
+      treeMaterial(i % 2 === 0 ? 0xf7f1e4 : 0xd7e4f2),
+    );
+    mesh.position.set((i - 1) * 0.04, BLOCK * 0.2 + i * BLOCK * 0.24, 0);
+    mesh.userData.markerHref = href;
+    group.add(mesh);
+  }
+}
+
+function addMarker(scene: THREE.Scene, marker: IslandMarker, spot: Spot): void {
+  const group = new THREE.Group();
+  group.position.set(spot.x, spot.y, spot.z);
+  const normal = new THREE.Vector3(spot.x, spot.y + CURVE, spot.z).normalize();
+  group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+  if (marker.kind === "course") addStone(group, marker);
+  else if (marker.kind === "workbook") addSheet(group, marker);
+  else addLantern(group, marker);
+  scene.add(group);
+}
+
+function markerSpots(markers: IslandMarker[]): Spot[] {
+  return markers.map((marker, index) => {
+    const rand = unitRandom(hashSeed(`marker:${marker.id}`));
+    const span = Math.max(markers.length, 1);
+    const x = (index - (span - 1) / 2) * 4.4 + (rand() - 0.5) * 0.6;
+    const z = 23 + rand() * 1.5;
+    return { x, y: surfaceY(x, z), z };
+  });
 }
 
 /** Crown radius in blocks, from a small ball to the full round tree. */
@@ -374,7 +440,15 @@ function buildGrove(scene: THREE.Scene, trees: IslandTree[], categories: BookCat
 
 type TreeHover = { tree: IslandTree; left: number; top: number };
 
-export function IslandView({ trees, categories }: { trees: IslandTree[]; categories: BookCategory[] }) {
+export function IslandView({
+  trees,
+  categories,
+  markers = [],
+}: {
+  trees: IslandTree[];
+  categories: BookCategory[];
+  markers?: IslandMarker[];
+}) {
   const host = useRef<HTMLDivElement>(null);
   const treesRef = useRef(trees);
   treesRef.current = trees;
@@ -387,6 +461,7 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
   const focusRequest = useRef<string | null>(null);
   const [mode, setMode] = useState<"3d" | "static">("3d");
   const [hover, setHover] = useState<TreeHover | null>(null);
+  const [markerHover, setMarkerHover] = useState<{ marker: IslandMarker; left: number; top: number } | null>(null);
   const [query, setQuery] = useState("");
   const [picked, setPicked] = useState(false);
   const matches = treeMatches(trees, picked ? "" : query, categories);
@@ -471,6 +546,11 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
     const sky = createIslandSky(scene);
 
     buildGrove(scene, trees, categories);
+    const markerPlaces = markerSpots(markers);
+    markers.forEach((marker, index) => {
+      const spot = markerPlaces[index];
+      if (spot) addMarker(scene, marker, spot);
+    });
     const spots = forestPositions(trees);
     const located = new Map<string, Spot>();
     trees.forEach((tree, index) => {
@@ -489,16 +569,19 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const canvas = renderer.domElement;
-    const pickBook = (event: PointerEvent): string | null => {
+    const tagged = (object: THREE.Object3D) => object.userData.bookId || object.userData.markerHref;
+    const pickTarget = (event: PointerEvent): { bookId?: string; href?: string } | null => {
       const rect = el.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
       const hits = raycaster.intersectObjects(scene.children, true);
-      const ground = hits.find((item) => !item.object.userData.bookId);
-      const hit = hits.find((item) => item.object.userData.bookId);
+      const ground = hits.find((item) => !tagged(item.object));
+      const hit = hits.find((item) => tagged(item.object));
       if (!hit || (ground && hit.distance > ground.distance + 0.5)) return null;
-      return typeof hit.object.userData.bookId === "string" ? hit.object.userData.bookId : null;
+      if (typeof hit.object.userData.bookId === "string") return { bookId: hit.object.userData.bookId };
+      if (typeof hit.object.userData.markerHref === "string") return { href: hit.object.userData.markerHref };
+      return null;
     };
     const placePopup = (event: PointerEvent, tree: IslandTree): TreeHover => {
       const width = 250;
@@ -515,23 +598,40 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
         lastDrag = { x: event.clientX, y: event.clientY };
         canvas.style.cursor = "grabbing";
         setHover(null);
+        setMarkerHover(null);
         return;
       }
-      const bookId = pickBook(event);
-      const tree = bookId ? treesRef.current.find((item) => item.bookId === bookId) : undefined;
-      canvas.style.cursor = tree ? "pointer" : "grab";
+      const target = pickTarget(event);
+      const tree = target?.bookId ? treesRef.current.find((item) => item.bookId === target.bookId) : undefined;
+      const marker = target?.href ? markers.find((item) => item.href === target.href) : undefined;
+      canvas.style.cursor = tree || marker ? "pointer" : "grab";
       setHover(tree ? placePopup(event, tree) : null);
+      if (marker) {
+        const width = 220;
+        let left = event.clientX + 16;
+        let top = event.clientY - 72;
+        if (left + width > window.innerWidth - 8) left = event.clientX - width - 12;
+        if (top < 8) top = event.clientY + 16;
+        setMarkerHover({ marker, left, top });
+      } else setMarkerHover(null);
     };
     const onLeave = () => {
       canvas.style.cursor = "grab";
       setHover(null);
+      setMarkerHover(null);
     };
-    let press: { x: number; y: number; bookId: string | null } | null = null;
+    let press: { x: number; y: number; bookId: string | null; href: string | null } | null = null;
     let dragging = false;
     let lastDrag = { x: 0, y: 0 };
     const onDown = (event: PointerEvent) => {
       if (event.button !== 0) return;
-      press = { x: event.clientX, y: event.clientY, bookId: pickBook(event) };
+      const target = pickTarget(event);
+      press = {
+        x: event.clientX,
+        y: event.clientY,
+        bookId: target?.bookId ?? null,
+        href: target?.href ?? null,
+      };
       dragging = true;
       lastDrag = { x: event.clientX, y: event.clientY };
       if (event.currentTarget instanceof HTMLElement) {
@@ -549,7 +649,12 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
       dragging = false;
       const dx = event.clientX - start.x;
       const dy = event.clientY - start.y;
-      if (!start.bookId || dx * dx + dy * dy > 16) return;
+      if (dx * dx + dy * dy > 16) return;
+      if (start.href) {
+        navigateRef.current(start.href);
+        return;
+      }
+      if (!start.bookId) return;
       const tree = treesRef.current.find((item) => item.bookId === start.bookId);
       if (tree) navigateRef.current(treeReadPath(tree));
     };
@@ -612,6 +717,7 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
   }, [
     trees.map((tree) => `${tree.bookId}:${tree.trunkBlocks}:${tree.treeType}:${tree.category ?? ""}`).join("|"),
     categories.map((category) => `${category.id}:${category.lat}:${category.lon}:${category.color}`).join("|"),
+    markers.map((marker) => `${marker.id}:${marker.kind}:${marker.progress}:${marker.title}`).join("|"),
   ]);
 
   if (mode === "static") {
@@ -623,6 +729,17 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
               ? `${trees.length} trees, one for each book. Height follows chapters and pages.`
               : "A small curved patch of earth. Each book you add becomes a tree."}
           </p>
+          <p>Lanterns are articles, sheets are exercise workbooks, and stones are courses.</p>
+          <ul className="marker-fallback">
+            {markers.map((marker) => (
+              <li key={marker.id}>
+                <Link to={marker.href}>
+                  {marker.kind === "course" ? "Stone" : marker.kind === "workbook" ? "Sheet" : "Lantern"} · {marker.title} ·{" "}
+                  {Math.round(marker.progress * 100)}%
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     );
@@ -672,6 +789,21 @@ export function IslandView({ trees, categories }: { trees: IslandTree[]; categor
         )}
       </form>
       {hover && <TreePopup hover={hover} categories={categories} />}
+      {markerHover && (
+        <div className="tree-popup" style={{ left: markerHover.left, top: markerHover.top }}>
+          <div>
+            <strong>{markerHover.marker.title}</strong>
+            <p className="muted">
+              {markerHover.marker.kind === "course"
+                ? "Course"
+                : markerHover.marker.kind === "workbook"
+                  ? "Exercise sheet"
+                  : "Article"}
+            </p>
+            <p>{Math.round(markerHover.marker.progress * 100)}%</p>
+          </div>
+        </div>
+      )}
       <p className="sky-time" ref={skyTimeRef}>
         Dawn
       </p>
