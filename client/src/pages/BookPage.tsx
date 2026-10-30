@@ -196,6 +196,21 @@ export function BookPage() {
     setIsland(data.island);
   }
 
+  async function skipExam(chapterId: string, blockingChapterId: string) {
+    if (!id) return;
+    setError(null);
+    try {
+      await api(`/api/books/${id}/reading/skip`, {
+        method: "POST",
+        body: JSON.stringify({ chapterId: blockingChapterId }),
+      });
+      setChapterNotice(null);
+      await complete(chapterId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The exam could not be skipped.");
+    }
+  }
+
   async function complete(chapterId: string) {
     setError(null);
     setChapterNotice(null);
@@ -541,7 +556,10 @@ export function BookPage() {
                     before marking a later chapter done.
                     {exams.some((exam) => exam.chapterId === chapterNotice.examChapterId)
                       ? ""
-                      : " No exam has been started for that chapter yet."}
+                      : " No exam has been started for that chapter yet. "}
+                    <button className="btn" type="button" onClick={() => void skipExam(chapter.id, chapterNotice.examChapterId!)}>
+                      Skip this exam
+                    </button>
                   </>
                 ) : (
                   chapterNotice.message

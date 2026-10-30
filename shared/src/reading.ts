@@ -112,12 +112,19 @@ export function isPartOpener(chapters: MilestoneChapter[], index: number): boole
   return chapter.pdfPageEnd === chapter.pdfPageStart && next.pdfPageStart === chapter.pdfPageStart;
 }
 
-/** Part titles when the book has them. Otherwise every fourth real chapter. */
+/**
+ * A numbered book stops at each “Chapter N”. The outline and the questions that
+ * share the title page are part of that chapter. Other books stop at part titles,
+ * or at every fourth real heading when the book has no part titles.
+ */
 export function examGroupStarts(chapters: MilestoneChapter[]): number[] {
+  const numbered = usesNumberedChapters(chapters.map((chapter) => chapter.title));
+  if (numbered) {
+    return chapters.flatMap((chapter, index) => (isMilestoneTitle(chapter.title, true) ? [index] : []));
+  }
   const openers = chapters.flatMap((_, index) => (isPartOpener(chapters, index) ? [index] : []));
   if (openers.length >= 2) return openers;
-  const numbered = usesNumberedChapters(chapters.map((chapter) => chapter.title));
-  const content = chapters.flatMap((chapter, index) => (isMilestoneTitle(chapter.title, numbered) ? [index] : []));
+  const content = chapters.flatMap((chapter, index) => (isMilestoneTitle(chapter.title, false) ? [index] : []));
   const starts: number[] = [];
   for (let index = 0; index < content.length; index += EXAM_GROUP_SIZE) {
     const start = content[index];
@@ -136,8 +143,8 @@ export type ReadingMilestoneGate = {
 };
 
 /**
- * Entering the next part requires an exam for the part just finished.
- * One chapter, and the sections inside a part, do not stop the reader.
+ * Entering the next chapter requires an exam for the chapter just finished.
+ * Sections inside the open chapter, including its outline, do not stop the reader.
  */
 export function readingMilestoneGate(
   chapters: MilestoneChapter[],
@@ -165,6 +172,27 @@ export function readingMilestoneGate(
     stopIndex: entered,
     resumePage: Math.max(1, enteredSpan.start - 1),
   };
+}
+
+/** Every chapter in the milestone that contains this heading, from its start through the next milestone. */
+export function milestoneSpanIds(chapters: MilestoneChapter[], chapterId: string): string[] {
+  const starts = examGroupStarts(chapters);
+  const index = chapters.findIndex((chapter) => chapter.id === chapterId);
+  if (index < 0 || starts.length === 0) return [];
+  let startPos = -1;
+  for (let position = 0; position < starts.length; position += 1) {
+    if (starts[position]! <= index) startPos = position;
+  }
+  if (startPos < 0) return [];
+  const start = starts[startPos]!;
+  const end = starts[startPos + 1] ?? chapters.length;
+  const ids: string[] = [];
+  for (let cursor = start; cursor < end; cursor += 1) {
+    if (isFrontMatter(chapters[cursor]?.title ?? "")) continue;
+    const id = chapters[cursor]?.id;
+    if (id) ids.push(id);
+  }
+  return ids;
 }
 
 /** Chapters in the finished part, spread across it when the part is long. */

@@ -215,6 +215,79 @@ ALTER TABLE project_reviews ADD COLUMN passed INTEGER;
 ALTER TABLE project_reviews ADD COLUMN notes_json TEXT;
 `,
   },
+  {
+    version: 7,
+    sql: `
+CREATE TABLE articles (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'article',
+  note TEXT,
+  library_filename TEXT,
+  external_url TEXT,
+  source_host TEXT,
+  page_position INTEGER NOT NULL DEFAULT 1,
+  page_count INTEGER,
+  progress_percent INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'not_started',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE courses (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  note TEXT,
+  lessons_confirmed INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE course_lessons (
+  id TEXT PRIMARY KEY,
+  course_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE workshop_projects (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  category TEXT,
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE workshop_cards (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL,
+  column_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  detail TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE exercise_suggestions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  source_host TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  matched_title TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  article_id TEXT,
+  created_at TEXT NOT NULL
+);
+`,
+  },
 ];
 
 export type Db = Database.Database;

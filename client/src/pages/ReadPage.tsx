@@ -22,6 +22,20 @@ type ExamGate = {
   failure: string | null;
 };
 
+type ExamNotice = {
+  chapterId: string;
+  title: string;
+  message: string;
+};
+
+type ReadingSave = {
+  book: Book;
+  chapters: Chapter[];
+  examLock: string | null;
+  examGate: ExamGate | null;
+  examNotice: ExamNotice | null;
+};
+
 function pdfErrorMessage(error: unknown): string {
   const name = error && typeof error === "object" && "name" in error ? String(error.name) : "";
   if (name === "PasswordException") return "This PDF is password protected, so it cannot be opened here.";
@@ -79,6 +93,7 @@ export function ReadPage() {
   const [stageBox, setStageBox] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
   const [examGate, setExamGate] = useState<ExamGate | null>(null);
+  const [examNotice, setExamNotice] = useState<ExamNotice | null>(null);
   const [examBusy, setExamBusy] = useState(false);
   const [placed, setPlaced] = useState(() => params.has("page"));
   const stageRef = useRef<HTMLDivElement>(null);
@@ -124,17 +139,15 @@ export function ReadPage() {
     const pageCount = doc.numPages;
     const seen = spread ? Math.min(pageCount, pairStart(page) + 1) : page;
     const timer = window.setTimeout(() => {
-      api<{ book: Book; chapters: Chapter[]; examLock: string | null; examGate: ExamGate | null }>(
-        `/api/books/${id}/reading`,
-        {
-          method: "POST",
-          body: JSON.stringify({ page: seen, pageCount }),
-        },
-      )
+      api<ReadingSave>(`/api/books/${id}/reading`, {
+        method: "POST",
+        body: JSON.stringify({ page: seen, pageCount }),
+      })
         .then((data) => {
           setBook(data.book);
           setChapters(data.chapters);
           setExamGate(data.examGate);
+          setExamNotice(data.examNotice);
           if (data.examGate) setError(null);
           else if (data.examLock) setError(data.examLock);
           else setError((current) => (current === "Could not save reading progress." || current?.startsWith("Pass the exam") ? null : current));
@@ -149,12 +162,13 @@ export function ReadPage() {
     const pageCount = doc.numPages;
     const seen = spread ? Math.min(pageCount, pairStart(page) + 1) : page;
     const timer = window.setInterval(() => {
-      api<{ examGate: ExamGate | null }>(`/api/books/${id}/reading`, {
+      api<ReadingSave>(`/api/books/${id}/reading`, {
         method: "POST",
         body: JSON.stringify({ page: seen, pageCount }),
       })
         .then((data) => {
-          if (data.examGate) setExamGate(data.examGate);
+          setExamGate(data.examGate);
+          setExamNotice(data.examNotice);
         })
         .catch(() => undefined);
     }, 5000);
@@ -310,19 +324,45 @@ export function ReadPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [doc, spread, examGate, page]);
 
-  async function retryExam() {
-    if (!id || !examGate || !doc) return;
+  async function skipExam(chapterId: string) {
+    if (!id || !doc) return;
     setExamBusy(true);
     try {
       const seen = spread ? Math.min(doc.numPages, pairStart(page) + 1) : page;
-      const data = await api<{ examGate: ExamGate | null }>(`/api/books/${id}/reading/exam`, {
+      const data = await api<ReadingSave>(`/api/books/${id}/reading/skip`, {
         method: "POST",
-        body: JSON.stringify({ page: seen, pageCount: doc.numPages, chapterId: examGate.chapterId }),
+        body: JSON.stringify({ chapterId, page: seen, pageCount: doc.numPages }),
       });
       setExamGate(data.examGate);
+      setExamNotice(data.examNotice);
+      setBook(data.book);
+      setChapters(data.chapters);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The exam could not be skipped.");
+    } finally {
+      setExamBusy(false);
+    }
+  }
+
+  async function retryExam(chapterId: string) {
+    if (!id || !doc) return;
+    setExamBusy(true);
+    try {
+      const seen = spread ? Math.min(doc.numPages, pairStart(page) + 1) : page;
+      const data = await api<ReadingSave>(`/api/books/${id}/reading/exam`, {
+        method: "POST",
+        body: JSON.stringify({ page: seen, pageCount: doc.numPages, chapterId }),
+      });
+      setExamGate(data.examGate);
+      setExamNotice(data.examNotice);
+      setBook(data.book);
+      setChapters(data.chapters);
     } catch (err) {
       const message = err instanceof Error ? err.message : "The exam was not created.";
-      setExamGate((current) => (current ? { ...current, failure: message } : current));
+      setExamNotice((current) =>
+        current && current.chapterId === chapterId ? { ...current, message } : { chapterId, title: "This chapter", message },
+      );
     } finally {
       setExamBusy(false);
     }
@@ -369,6 +409,16 @@ export function ReadPage() {
 
   return (
     <div className="reader-page">
+      {examNotice && !examGate && (
+        <div className="banner">
+          <p>
+            {examNotice.message} Reading continues without an exam for “{examNotice.title}”.
+          </p>
+          <button className="btn" type="button" disabled={examBusy} onClick={() => void retryExam(examNotice.chapterId)}>
+            {examBusy ? "Writing the exam…" : "Try again"}
+          </button>
+        </div>
+      )}
       <div className="reader-toolbar">
         <Link className="btn ghost" to={`/books/${book.id}`}>
           Back to book
@@ -463,6 +513,7 @@ export function ReadPage() {
           <div className="reader-gate-card">
             <h2 id="reader-gate-title">Pass this exam before continuing</h2>
             <p>{examGate.message}</p>
+            <p className="muted">Skip leaves the exam unfinished.</p>
             {examGate.projectId ? (
               <p>This exam is ready.</p>
             ) : examGate.failure ? (
@@ -476,10 +527,13 @@ export function ReadPage() {
                   Open the exam
                 </Link>
               ) : (
-                <button className="btn primary" type="button" disabled={examBusy || !examGate.failure} onClick={() => void retryExam()}>
+                <button className="btn primary" type="button" disabled={examBusy || !examGate.failure} onClick={() => void retryExam(examGate.chapterId)}>
                   {examBusy ? "Writing the exam…" : examGate.failure ? "Try again" : "Writing the exam…"}
                 </button>
               )}
+              <button className="btn" type="button" disabled={examBusy} onClick={() => void skipExam(examGate.chapterId)}>
+                Skip this exam
+              </button>
               <button className="btn" type="button" onClick={() => setPage(examGate.resumePage)}>
                 Stay on this chapter
               </button>

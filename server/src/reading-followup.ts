@@ -17,8 +17,10 @@ import {
   getBook,
   getChapter,
   getSource,
+  clearExamUnavailable,
   insertSource,
   latestPack,
+  markExamUnavailable,
   markStalePacks,
   saveReviewPack,
   saveWebExcerpt,
@@ -44,6 +46,7 @@ export async function generateMilestoneExam(db: Db, chapterIds: string[]): Promi
   } catch (error) {
     const message = error instanceof Error ? error.message : "The exam was not created.";
     examFailures.set(primary, message);
+    markExamUnavailable(db, primary, message);
     console.error(`Reading follow-up failed: ${message}`);
   }
 }
@@ -62,7 +65,10 @@ export function scheduleReadingFollowups(db: Db, followups: ReadingFollowups): v
     .catch((error: unknown) => {
       const message = error instanceof Error ? error.message : "unknown error";
       const examId = examIds[0];
-      if (examId) examFailures.set(examId, message);
+      if (examId) {
+        examFailures.set(examId, message);
+        markExamUnavailable(db, examId, message);
+      }
       console.error(`Reading follow-up failed: ${message}`);
     });
 }
@@ -93,7 +99,11 @@ async function ensureReview(db: Db, chapterId: string): Promise<void> {
 
 async function ensureExam(db: Db, chapterIds: string[]): Promise<void> {
   const primary = chapterIds[0];
-  if (!primary || examRunning.has(primary) || !aiConfigured() || examAlreadyExists(db, primary)) return;
+  if (!primary || examRunning.has(primary) || !aiConfigured()) return;
+  if (examAlreadyExists(db, chapterIds)) {
+    clearExamUnavailable(db, primary);
+    return;
+  }
   examRunning.add(primary);
   try {
     await writeMilestoneExam(db, chapterIds);
@@ -138,19 +148,18 @@ async function writeMilestoneExam(db: Db, chapterIds: string[]): Promise<void> {
     proposals,
   );
   acceptProposal(db, batch.id, exam.id);
+  clearExamUnavailable(db, primary);
 }
 
-function examAlreadyExists(db: Db, chapterId: string): boolean {
-  const row = db
-    .prepare(
-      `SELECT 1 AS ok FROM projects p
-       LEFT JOIN project_versions v ON v.project_id = p.id
-       WHERE p.status != 'dismissed'
-         AND (instr(p.brief_json, ?) > 0 OR instr(COALESCE(v.brief_json, ''), ?) > 0)
-       LIMIT 1`,
-    )
-    .get(chapterId, chapterId);
-  return Boolean(row);
+function examAlreadyExists(db: Db, chapterIds: string[]): boolean {
+  const rowFor = db.prepare(
+    `SELECT 1 AS ok FROM projects p
+     LEFT JOIN project_versions v ON v.project_id = p.id
+     WHERE p.status != 'dismissed'
+       AND (instr(p.brief_json, ?) > 0 OR instr(COALESCE(v.brief_json, ''), ?) > 0)
+     LIMIT 1`,
+  );
+  return chapterIds.some((chapterId) => Boolean(rowFor.get(chapterId, chapterId)));
 }
 
 async function loadChapterText(

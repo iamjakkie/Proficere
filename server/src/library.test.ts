@@ -6,6 +6,7 @@ import request from "supertest";
 import { createApp } from "./app.js";
 import { openDatabase } from "./db.js";
 import { resolveInsideLibrary, saveLibraryFolder } from "./library.js";
+import { setSetting } from "./store.js";
 
 function tempDb() {
   const file = path.join(os.tmpdir(), `pi-lib-${Date.now()}-${Math.random().toString(16).slice(2)}.db`);
@@ -162,6 +163,53 @@ describe("reading progress from the viewer", () => {
     expect(opened.body.chapter.status).toBe("completed");
   });
 
+  it("keeps reading when the milestone exam cannot be created", async () => {
+    const h = tempDb();
+    handles.push(h);
+    const app = createApp(h.db);
+    const created = await request(app).post("/api/books").send({ title: "Openers" });
+    const id = created.body.book.id as string;
+    const saved = await request(app)
+      .post(`/api/books/${id}/chapters/confirm`)
+      .send({
+        outline: [
+          { number: null, title: "Chapter 1 Motion", pdfPageStart: 1, pdfPageEnd: 1 },
+          { number: null, title: "1.1 Speed", pdfPageStart: 1, pdfPageEnd: 2 },
+          { number: null, title: "Chapter 2 Forces", pdfPageStart: 3, pdfPageEnd: 3 },
+          { number: null, title: "2.1 Mass", pdfPageStart: 3, pdfPageEnd: 4 },
+        ],
+      })
+      .expect(200);
+    const firstId = saved.body.chapters[0].id as string;
+    const sectionId = saved.body.chapters[1].id as string;
+    const held = await request(app).post(`/api/books/${id}/reading`).send({ page: 4, pageCount: 4 }).expect(200);
+    expect(held.body.examGate).toMatchObject({ chapterId: firstId, projectId: null });
+    expect(held.body.examNotice).toBeNull();
+    expect(held.body.chapters[2].progressPercent).toBe(0);
+    setSetting(h.db, `exam_unavailable:${firstId}`, "The model did not return a usable project suggestion.");
+    const released = await request(app).post(`/api/books/${id}/reading`).send({ page: 4, pageCount: 4 }).expect(200);
+    expect(released.body.examGate).toBeNull();
+    expect(released.body.examNotice).toMatchObject({
+      chapterId: firstId,
+      message: "The model did not return a usable project suggestion.",
+    });
+    expect(released.body.chapters[2]).toMatchObject({ progressPercent: 100, status: "completed" });
+    expect(released.body.chapters[3]).toMatchObject({ progressPercent: 100, status: "completed" });
+    const now = new Date().toISOString();
+    h.db.prepare(
+      `INSERT INTO projects (id, batch_id, proposal_id, status, brief_json, dismiss_reason, created_at, updated_at)
+       VALUES ('section-exam', NULL, 'p', 'active', '{}', NULL, ?, ?)`,
+    ).run(now, now);
+    h.db.prepare(
+      `INSERT INTO project_versions
+       (id, project_id, version_number, brief_json, plan_json, source_snapshot_json, assessment_mode, created_at)
+       VALUES ('section-ver', 'section-exam', 1, ?, '{}', '[]', 'objective', ?)`,
+    ).run(JSON.stringify({ sources: [{ chapterId: sectionId }] }), now);
+    const linked = await request(app).post(`/api/books/${id}/reading`).send({ page: 4, pageCount: 4 }).expect(200);
+    expect(linked.body.examNotice).toBeNull();
+    expect(linked.body.examGate).toMatchObject({ chapterId: firstId, projectId: "section-exam" });
+  });
+
   it("completes front matter while reading and waits at the next chapter", async () => {
     const h = tempDb();
     handles.push(h);
@@ -188,9 +236,55 @@ describe("reading progress from the viewer", () => {
     ]);
     expect(inside.body.examGate).toBeNull();
     const held = await request(app).post(`/api/books/${id}/reading`).send({ page: 4, pageCount: 4 }).expect(200);
-    expect(held.body.chapters[3]).toMatchObject({ progressPercent: 100, status: "completed" });
-    expect(held.body.examGate).toBeNull();
-    expect(saved.body.chapters[1].id).toBeTruthy();
+    expect(held.body.chapters[3].progressPercent).toBe(0);
+    expect(held.body.examGate).toMatchObject({
+      chapterId: saved.body.chapters[1].id,
+      title: "Chapter 1 Introduction",
+      resumePage: 3,
+    });
+  });
+
+  it("skips an exam and continues into the next chapter", async () => {
+    const h = tempDb();
+    handles.push(h);
+    const app = createApp(h.db);
+    const created = await request(app).post("/api/books").send({ title: "Skippable" });
+    const id = created.body.book.id as string;
+    const saved = await request(app)
+      .post(`/api/books/${id}/chapters/confirm`)
+      .send({
+        outline: [
+          { number: null, title: "Chapter 1 Introduction", pdfPageStart: 1, pdfPageEnd: 1 },
+          { number: null, title: "1.1 Concepts", pdfPageStart: 1, pdfPageEnd: 2 },
+          { number: null, title: "Chapter 2 Frames", pdfPageStart: 3, pdfPageEnd: 3 },
+        ],
+      })
+      .expect(200);
+    const firstId = saved.body.chapters[0].id as string;
+    const secondId = saved.body.chapters[2].id as string;
+    const now = new Date().toISOString();
+    h.db.prepare(
+      `INSERT INTO projects (id, batch_id, proposal_id, status, brief_json, dismiss_reason, created_at, updated_at)
+       VALUES ('proj', NULL, 'p', 'active', '{}', NULL, ?, ?)`,
+    ).run(now, now);
+    h.db.prepare(
+      `INSERT INTO project_versions
+       (id, project_id, version_number, brief_json, plan_json, source_snapshot_json, assessment_mode, created_at)
+       VALUES ('ver', 'proj', 1, ?, '{}', '[]', 'objective', ?)`,
+    ).run(JSON.stringify({ sources: [{ chapterId: firstId }] }), now);
+    const held = await request(app).post(`/api/books/${id}/reading`).send({ page: 3, pageCount: 3 }).expect(200);
+    expect(held.body.examGate).toMatchObject({ chapterId: firstId });
+    expect(held.body.chapters[2].progressPercent).toBe(0);
+    const blocked = await request(app).patch(`/api/chapters/${secondId}`).send({ progressPercent: 100 });
+    expect(blocked.status).toBe(409);
+    const skipped = await request(app)
+      .post(`/api/books/${id}/reading/skip`)
+      .send({ chapterId: firstId, page: 3, pageCount: 3 })
+      .expect(200);
+    expect(skipped.body.examGate).toBeNull();
+    expect(skipped.body.chapters[2]).toMatchObject({ progressPercent: 100, status: "completed" });
+    const again = await request(app).post(`/api/books/${id}/reading`).send({ page: 3, pageCount: 3 }).expect(200);
+    expect(again.body.examGate).toBeNull();
   });
 
   it("grows a book that has no chapter page spans from the furthest opened page", async () => {

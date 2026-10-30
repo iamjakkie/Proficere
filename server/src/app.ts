@@ -22,6 +22,8 @@ import {
   validateVerificationPlan,
 } from "@progress-island/shared";
 import { aiConfigured, config } from "./config.js";
+import { registerShelfRoutes } from "./shelf-routes.js";
+import { activeCourse, islandMarkers } from "./shelf-store.js";
 import { generateMilestoneExam, readingExamFailure, scheduleReadingFollowups } from "./reading-followup.js";
 import type { Db } from "./db.js";
 import { searchCatalog } from "./catalog.js";
@@ -117,6 +119,7 @@ import {
   nowIso,
   printQueue,
   recordReading,
+  skipMilestoneExam,
   refreshPackStale,
   removeCategory,
   renameCategory,
@@ -138,7 +141,6 @@ const upload = multer({
 
 const uploadBookPdf = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: PDF_LIMITS.libraryMaxBytes },
 });
 
 function examsForBook(db: Db, bookId: string) {
@@ -334,6 +336,8 @@ export function createApp(db: Db): Express {
       categories: listCategories(db),
       planProgress: dashboardPlan(db),
       ai: getAiStatus(),
+      markers: islandMarkers(db),
+      activeCourse: activeCourse(db),
     });
   });
 
@@ -621,6 +625,35 @@ export function createApp(db: Db): Express {
         chapters: result.chapters,
         examLock: result.examLock,
         examGate: gateWithFailure(result.examGate),
+        examNotice: result.examNotice,
+      });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/reading/skip",
+    asyncHandler(async (req, res) => {
+      const body = z
+        .object({
+          chapterId: z.string().uuid(),
+          page: z.number().int().positive().optional(),
+          pageCount: z.number().int().positive().optional(),
+        })
+        .parse(req.body);
+      skipMilestoneExam(db, req.params.id, body.chapterId);
+      if (body.page == null || body.pageCount == null) {
+        res.json({ skipped: true });
+        return;
+      }
+      const result = recordReading(db, req.params.id, body.page, body.pageCount);
+      scheduleReadingFollowups(db, result.followups);
+      res.json({
+        skipped: true,
+        book: result.book,
+        chapters: result.chapters,
+        examLock: result.examLock,
+        examGate: gateWithFailure(result.examGate),
+        examNotice: result.examNotice,
       });
     }),
   );
@@ -644,6 +677,7 @@ export function createApp(db: Db): Express {
         chapters: result.chapters,
         examLock: result.examLock,
         examGate: gateWithFailure(result.examGate),
+        examNotice: result.examNotice,
       });
     }),
   );
@@ -1186,7 +1220,12 @@ export function createApp(db: Db): Express {
   app.post(
     "/api/projects/:id/run",
     asyncHandler(async (req, res) => {
-      const body = z.object({ deliverable: z.string().max(20_000) }).parse(req.body ?? {});
+      const body = z
+        .object({
+          deliverable: z.string().max(20_000),
+          exercise: z.number().int().nonnegative().optional(),
+        })
+        .parse(req.body ?? {});
       const project = getProject(db, req.params.id);
       if (project.status !== "active") {
         throw new AppError("Open an active project before running a derivation.", "invalid_state", 409);
@@ -1194,7 +1233,10 @@ export function createApp(db: Db): Express {
       if (!project.brief.exam) {
         throw new AppError("This project has no derivation to run.", "invalid_state", 409);
       }
-      res.json(await previewExam(project.brief, body.deliverable));
+      if (body.exercise != null && !project.brief.exam.exercises?.[body.exercise]) {
+        throw new AppError("That task is not part of this exam.", "validation", 400);
+      }
+      res.json(await previewExam(project.brief, body.deliverable, body.exercise));
     }),
   );
 
@@ -1207,6 +1249,10 @@ export function createApp(db: Db): Express {
           assumptions: z.string().max(4000),
           deliverable: z.string().max(20000),
           prediction: z.string().max(2000).nullable().optional(),
+          tasks: z
+            .array(z.object({ index: z.number().int().nonnegative(), answer: z.string().max(8000) }))
+            .max(10)
+            .optional(),
         })
         .parse(req.body);
       const submission = addSubmission(db, req.params.id, {
@@ -1214,6 +1260,7 @@ export function createApp(db: Db): Express {
         assumptions: body.assumptions,
         deliverable: body.deliverable,
         prediction: body.prediction ?? null,
+        tasks: body.tasks,
       });
       res.status(201).json({ submission });
     }),
@@ -1223,7 +1270,6 @@ export function createApp(db: Db): Express {
     "/api/projects/:id/submissions/:submissionId/verify",
     asyncHandler(async (req, res) => {
       const body = z.object({ consent: z.boolean().optional() }).parse(req.body ?? {});
-      requireConsent(body);
       const submission = getSubmission(db, req.params.submissionId);
       if (submission.projectId !== req.params.id) {
         throw new AppError("Submission not found.", "not_found", 404);
@@ -1238,10 +1284,15 @@ export function createApp(db: Db): Express {
         throw new AppError("This submission is missing its frozen brief version.", "version_mismatch", 409);
       }
       if (version.brief.exam) {
+        const exercises = version.brief.exam.exercises ?? [];
+        const workbook = exercises.length >= 3;
+        const needsModel = !workbook || exercises.some((item) => item.kind === "theory");
+        if (needsModel) requireConsent(body);
         const graded = await reviewExam({
           brief: version.brief,
           deliverable: submission.artifacts.deliverable,
-          gradeWithModel: aiConfigured(),
+          tasks: submission.artifacts.tasks,
+          gradeWithModel: aiConfigured() && needsModel,
         });
         const review = saveReview(db, {
           submissionId: submission.id,
@@ -1259,6 +1310,7 @@ export function createApp(db: Db): Express {
         res.json({ review, labelText: projectLabelText(review.label) });
         return;
       }
+      requireConsent(body);
       const objective = objectiveResultsFor(version, submission.artifacts);
       const runnerFailed = objective.some((item) => item.operational);
       if (!aiConfigured()) {
@@ -1353,6 +1405,8 @@ export function createApp(db: Db): Express {
       res.json({ project: presentProject(finishProject(db, req.params.id)) });
     }),
   );
+
+  registerShelfRoutes(app, db);
 
   app.get("/api/backup", (_req, res) => {
     res.json(exportBackup(db));

@@ -15,7 +15,6 @@ import {
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const MAX_PAGES = 40;
-const LIBRARY_MAX_BYTES = 150 * 1024 * 1024;
 const LIBRARY_MAX_SCAN_PAGES = 800;
 const LIBRARY_MAX_CHAPTER_PAGES = 40;
 
@@ -55,7 +54,7 @@ export async function extractChapterFromPdf(
   filename: string,
   input: { title: string; nextTitles: string[] },
 ): Promise<{ text: string; pdfPageStart: number | null; pdfPageEnd: number | null; pages: number }> {
-  const doc = await openPdf(buffer, filename, LIBRARY_MAX_BYTES);
+  const doc = await openPdf(buffer, filename);
   if (doc.numPages > LIBRARY_MAX_SCAN_PAGES) {
     throw new AppError(
       `${filename} has ${doc.numPages} pages. The library reader scans up to ${LIBRARY_MAX_SCAN_PAGES}. Split the PDF or paste this chapter.`,
@@ -84,8 +83,8 @@ export async function extractChapterFromPdf(
   };
 }
 
-async function openPdf(buffer: Buffer, filename: string, maxBytes: number): Promise<PdfDoc> {
-  if (buffer.byteLength > maxBytes) {
+async function openPdf(buffer: Buffer, filename: string, maxBytes?: number): Promise<PdfDoc> {
+  if (maxBytes != null && buffer.byteLength > maxBytes) {
     throw new AppError(
       `${filename} is larger than ${Math.round(maxBytes / (1024 * 1024))} MB.${
         maxBytes <= MAX_BYTES
@@ -129,7 +128,7 @@ export async function extractPdfPageRange(
   start: number,
   end: number,
 ): Promise<string> {
-  const doc = await openPdf(buffer, filename, LIBRARY_MAX_BYTES);
+  const doc = await openPdf(buffer, filename);
   const first = Math.min(doc.numPages, Math.max(1, start));
   const last = Math.min(doc.numPages, Math.max(first, end), first + LIBRARY_MAX_CHAPTER_PAGES - 1);
   return readMarkedPages(doc, first, last);
@@ -140,7 +139,7 @@ export async function extractFrontMatter(
   filename: string,
   maxPages = 16,
 ): Promise<{ text: string; pagesRead: number; pages: number }> {
-  const doc = await openPdf(buffer, filename, LIBRARY_MAX_BYTES);
+  const doc = await openPdf(buffer, filename);
   const pagesRead = Math.min(doc.numPages, maxPages);
   const text = await readMarkedPages(doc, 1, pagesRead);
   return { text, pagesRead, pages: doc.numPages };
@@ -151,7 +150,7 @@ export async function extractChaptersFromPdf(
   buffer: Buffer,
   filename: string,
 ): Promise<{ outline: OutlineChapter[]; provenanceLabel: string; text: string }> {
-  const doc = await openPdf(buffer, filename, LIBRARY_MAX_BYTES);
+  const doc = await openPdf(buffer, filename);
   const pagesRead = Math.min(doc.numPages, TOC_SCAN_PAGES);
   const frontMatter = await readMarkedPages(doc, 1, pagesRead);
   const toc = parseTableOfContents(frontMatter);
@@ -267,6 +266,5 @@ function pageItemsToText(items: unknown[]): string {
 export const PDF_LIMITS = {
   maxBytes: MAX_BYTES,
   maxPages: MAX_PAGES,
-  libraryMaxBytes: LIBRARY_MAX_BYTES,
   libraryMaxChapterPages: LIBRARY_MAX_CHAPTER_PAGES,
 };

@@ -15,6 +15,7 @@ import {
   creditVisitedPage,
   isFrontMatter,
   milestoneChapterIds,
+  milestoneSpanIds,
   readingMilestoneGate,
   resumePdfPage,
 } from "./reading.js";
@@ -306,7 +307,13 @@ describe("reading progress", () => {
     expect(inside.credits.map((credit) => credit.id)).toEqual(["title", "contents", "preface", "thanks", "ch1", "s11"]);
     expect(inside.credits.find((credit) => credit.id === "s11")?.progressPercent).toBe(75);
     expect(readingMilestoneGate(outline, 24, 797)).toBeNull();
-    expect(readingMilestoneGate(outline, 44, 797)).toBeNull();
+    expect(readingMilestoneGate(outline, 43, 797)).toBeNull();
+    expect(readingMilestoneGate(outline, 44, 797)).toMatchObject({
+      chapterId: "ch1",
+      title: "Chapter 1 Introduction",
+      stopIndex: 6,
+      resumePage: 43,
+    });
     const parts = [
       { id: "part", title: "Sets and functions", pdfPageStart: 7, pdfPageEnd: 7, progressPercent: 0, pagePosition: null },
       { id: "intro", title: "Introduction to linear algebra", pdfPageStart: 7, pdfPageEnd: 11, progressPercent: 0, pagePosition: null },
@@ -322,6 +329,43 @@ describe("reading progress", () => {
       resumePage: 156,
     });
     expect(milestoneChapterIds(parts, "part")).toEqual(["part", "intro", "sets"]);
+  });
+
+  it("asks for a numbered chapter when the next chapter starts", () => {
+    const row = (id: string, title: string, start: number, end: number) => ({
+      id,
+      title,
+      pdfPageStart: start,
+      pdfPageEnd: end,
+      progressPercent: 0,
+      pagePosition: null,
+    });
+    const book = [
+      row("ch1", "Chapter 1 Introduction: The Nature of Science and Physics", 25, 25),
+      row("outline1", "Chapter Outline", 25, 25),
+      row("questions", "Conceptual Questions", 53, 53),
+      row("problems", "Problems & Exercises", 53, 56),
+      row("ch2", "Chapter 2 Kinematics", 57, 57),
+      row("outline2", "Chapter Outline", 57, 57),
+      row("intro2", "Introduction to One-Dimensional Kinematics", 57, 57),
+      row("s21", "2.1 Displacement", 58, 60),
+      row("ch3", "Chapter 3 Two-Dimensional Kinematics", 119, 119),
+      row("s31", "3.1 Kinematics in Two Dimensions", 120, 130),
+    ];
+    expect(readingMilestoneGate(book, 56, 1671)).toBeNull();
+    expect(readingMilestoneGate(book, 58, 1671)).toMatchObject({
+      chapterId: "ch1",
+      title: "Chapter 1 Introduction: The Nature of Science and Physics",
+      resumePage: 56,
+    });
+    expect(readingMilestoneGate(book, 119, 1671)).toMatchObject({
+      chapterId: "ch2",
+      title: "Chapter 2 Kinematics",
+      resumePage: 118,
+    });
+    expect(milestoneChapterIds(book, "ch2")).toEqual(["ch2", "outline2", "intro2", "s21"]);
+    expect(milestoneSpanIds(book, "s21")).toEqual(["ch2", "outline2", "intro2", "s21"]);
+    expect(milestoneSpanIds(book, "questions")).toEqual(["ch1", "outline1", "questions", "problems"]);
   });
 });
 

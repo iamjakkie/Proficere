@@ -14,8 +14,14 @@ export const config = {
   openRouterModel: process.env.OPENROUTER_MODEL?.trim() ?? "",
   clientOrigin: `http://127.0.0.1:${process.env.CLIENT_PORT ?? "5173"}`,
   libraryPath: process.env.LIBRARY_PATH?.trim() ?? "",
+  exerciseSearchEndpoint: process.env.EXERCISE_SEARCH_ENDPOINT?.trim() ?? "",
+  exerciseSearchApiKey: process.env.EXERCISE_SEARCH_API_KEY?.trim() ?? "",
   root,
 };
+
+export function exerciseSearchConfigured(): boolean {
+  return Boolean(config.exerciseSearchEndpoint && config.exerciseSearchApiKey);
+}
 
 export function ensureDataDir(): void {
   fs.mkdirSync(path.dirname(path.resolve(config.databasePath)), { recursive: true });

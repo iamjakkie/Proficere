@@ -23,6 +23,7 @@ import {
   growthForBook,
   isFrontMatter,
   milestoneChapterIds,
+  milestoneSpanIds,
   readingMilestoneGate,
   trunkBlocks,
   treeTypeForBook,
@@ -516,6 +517,12 @@ export type ExamGate = {
   resumePage: number;
 };
 
+export type ExamNotice = {
+  chapterId: string;
+  title: string;
+  message: string;
+};
+
 export type ReadingFollowups = {
   reviewChapterIds: string[];
   examChapterIds: string[];
@@ -526,7 +533,14 @@ export function recordReading(
   bookId: string,
   page: number,
   pageCount: number,
-): { book: Book; chapters: Chapter[]; examLock: string | null; examGate: ExamGate | null; followups: ReadingFollowups } {
+): {
+  book: Book;
+  chapters: Chapter[];
+  examLock: string | null;
+  examGate: ExamGate | null;
+  examNotice: ExamNotice | null;
+  followups: ReadingFollowups;
+} {
   if (!Number.isInteger(page) || !Number.isInteger(pageCount) || page < 1 || page > pageCount) {
     throw new AppError("That page is outside this PDF.", "validation", 400);
   }
@@ -537,7 +551,12 @@ export function recordReading(
   const bookReadPage = Number.isInteger(stored) && stored > 0 ? stored : 0;
   const credited = creditVisitedPage(chapters, page, pageCount, bookReadPage);
   const gate = readingMilestoneGate(chapters, page, pageCount);
-  const activeGate = gate && !chapterExamPassed(db, gate.chapterId) ? gate : null;
+  const coveredIds = gate ? coveredChapterIds(chapters, gate.chapterId) : [];
+  const projectId = coveredIds.length > 0 ? examProjectId(db, coveredIds) : null;
+  const passed = coveredIds.some((chapterId) => chapterExamPassed(db, chapterId));
+  const skipped = coveredIds.some((chapterId) => examSkipped(db, chapterId));
+  const unavailable = gate && !projectId && !passed && !skipped ? examUnavailableMessage(db, gate.chapterId) : null;
+  const activeGate = gate && !passed && !skipped && !unavailable ? gate : null;
   const applicable = credited.credits.filter((credit) => {
     if (!activeGate) return true;
     const index = chapters.findIndex((chapter) => chapter.id === credit.id);
@@ -574,13 +593,50 @@ export function recordReading(
           chapterId: activeGate.chapterId,
           title: activeGate.title,
           bookId,
-          projectId: examProjectId(db, activeGate.chapterId),
+          projectId,
           message: `Pass the exam for “${activeGate.title}” before continuing.`,
           resumePage: activeGate.resumePage,
         }
       : null,
+    examNotice:
+      unavailable && gate
+        ? { chapterId: gate.chapterId, title: gate.title, message: unavailable }
+        : null,
     followups: { reviewChapterIds, examChapterIds },
   };
+}
+
+const EXAM_UNAVAILABLE_PREFIX = "exam_unavailable:";
+const EXAM_SKIPPED_PREFIX = "exam_skipped:";
+
+export function examSkipped(db: Db, chapterId: string): boolean {
+  return Boolean(getSetting(db, `${EXAM_SKIPPED_PREFIX}${chapterId}`));
+}
+
+/** Leaves the milestone exam unfinished and stops it from blocking later chapters. */
+export function skipMilestoneExam(db: Db, bookId: string, chapterId: string): void {
+  const chapters = listChapters(db, bookId);
+  const ids = milestoneSpanIds(chapters, chapterId);
+  if (ids.length === 0) throw new AppError("That chapter has no exam to skip.", "not_found", 404);
+  for (const id of ids) setSetting(db, `${EXAM_SKIPPED_PREFIX}${id}`, "skipped");
+}
+
+export function examUnavailableMessage(db: Db, chapterId: string): string | null {
+  const message = getSetting(db, `${EXAM_UNAVAILABLE_PREFIX}${chapterId}`)?.trim();
+  return message ? message : null;
+}
+
+export function markExamUnavailable(db: Db, chapterId: string, message: string): void {
+  setSetting(db, `${EXAM_UNAVAILABLE_PREFIX}${chapterId}`, message);
+}
+
+export function clearExamUnavailable(db: Db, chapterId: string): void {
+  deleteSetting(db, `${EXAM_UNAVAILABLE_PREFIX}${chapterId}`);
+}
+
+function coveredChapterIds(chapters: Chapter[], chapterId: string): string[] {
+  const ids = milestoneChapterIds(chapters, chapterId);
+  return ids.length > 0 ? ids : [chapterId];
 }
 
 function completedByReading(db: Db, chapterId: string): boolean {
@@ -606,7 +662,20 @@ function chapterExamPassed(db: Db, chapterId: string): boolean {
   return Boolean(row);
 }
 
-function examProjectId(db: Db, chapterId: string): string | null {
+function examProjectId(db: Db, chapterIds: string[]): string | null {
+  const primary = chapterIds[0];
+  if (primary) {
+    const exact = projectForChapter(db, primary);
+    if (exact) return exact;
+  }
+  for (const chapterId of chapterIds.slice(1)) {
+    const found = projectForChapter(db, chapterId);
+    if (found) return found;
+  }
+  return null;
+}
+
+function projectForChapter(db: Db, chapterId: string): string | null {
   const version = db
     .prepare(
       `SELECT p.id FROM projects p
@@ -644,6 +713,9 @@ function examLockMessage(db: Db, chapter: Chapter): { message: string; chapterId
            WHERE r.passed = 1
              AND p.status != 'dismissed'
              AND instr(v.brief_json, earlier.id) > 0
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM settings WHERE key = 'exam_skipped:' || earlier.id
          )
        ORDER BY earlier.outline_position ASC
        LIMIT 1`,
@@ -1401,6 +1473,12 @@ export function exportBackup(db: Db) {
     "project_versions",
     "project_submissions",
     "project_reviews",
+    "articles",
+    "courses",
+    "course_lessons",
+    "workshop_projects",
+    "workshop_cards",
+    "exercise_suggestions",
     "schema_migrations",
   ];
   const payload: Record<string, unknown[]> = {};
@@ -1434,6 +1512,12 @@ export function restoreBackup(db: Db, backup: { payload?: Record<string, unknown
     "project_versions",
     "project_submissions",
     "project_reviews",
+    "articles",
+    "courses",
+    "course_lessons",
+    "workshop_projects",
+    "workshop_cards",
+    "exercise_suggestions",
   ];
   db.exec("BEGIN");
   try {

@@ -15,3 +15,4 @@ export * from "./projects.js";
 export * from "./derivation.js";
 export * from "./plane.js";
 export * from "./pdf-book.js";
+export * from "./shelf.js";
