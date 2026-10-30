@@ -8,7 +8,6 @@ import { FieldView } from "../FieldView";
 export function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [categories, setCategories] = useState<BookCategory[]>([]);
-  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -40,15 +39,7 @@ export function DashboardPage() {
 
   return (
     <div className="field-page">
-      <FieldView resources={data.field} categories={categories} query={query} />
-      <form className="field-find" onSubmit={(event) => event.preventDefault()}>
-        <input
-          aria-label="Find"
-          placeholder="Find"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-      </form>
+      <FieldView resources={data.field} categories={categories} />
       {resume && (
         <Link className="field-continue" to={resume.href}>
           Continue {resume.title}

@@ -110,7 +110,7 @@ export function SettingsPage() {
       <form className="card stack" onSubmit={(event) => void saveLibrary(event)}>
         <h2>PDF library</h2>
         <p className="muted">
-          A folder on this Mac that holds your book PDFs. Progress Island reads a chapter from the
+          A folder on this Mac that holds your book PDFs. Proficere reads a chapter from the
           attached file when you generate a review. The file is not uploaded. The excerpt is sent to
           OpenRouter only after you consent.
         </p>

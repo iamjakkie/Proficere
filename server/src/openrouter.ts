@@ -78,7 +78,7 @@ export async function chatJson<T>(
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "http://127.0.0.1",
-      "X-Title": "Progress Island",
+      "X-Title": "Proficere",
     },
     body: JSON.stringify({
       model,

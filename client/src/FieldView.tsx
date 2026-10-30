@@ -32,18 +32,14 @@ function columnsFor(count: number): number {
 
 function groupsFor(resources: FieldResource[], categories: BookCategory[]): Group[] {
   const byId = new Map<string, FieldResource[]>();
-  const library: FieldResource[] = [];
   for (const resource of resources) {
     const category = bookCategory(categories, resource.category);
-    if (!category) {
-      library.push(resource);
-      continue;
-    }
+    if (!category) continue;
     const list = byId.get(category.id) ?? [];
     list.push(resource);
     byId.set(category.id, list);
   }
-  const groups: Group[] = categories
+  return categories
     .filter((category) => (byId.get(category.id)?.length ?? 0) > 0)
     .map((category) => ({
       id: category.id,
@@ -51,15 +47,6 @@ function groupsFor(resources: FieldResource[], categories: BookCategory[]): Grou
       color: categoryColorCss(category.color),
       items: (byId.get(category.id) ?? []).slice().sort((a, b) => a.title.localeCompare(b.title)),
     }));
-  if (library.length) {
-    groups.push({
-      id: "library",
-      label: "Library",
-      color: "var(--moss)",
-      items: library.slice().sort((a, b) => a.title.localeCompare(b.title)),
-    });
-  }
-  return groups;
 }
 
 function Meter({ pct, color }: { pct: number; color: string }) {
@@ -104,18 +91,15 @@ function placeCard(anchor: HTMLElement): { x: number; y: number } {
 export function FieldView({
   resources,
   categories,
-  query,
 }: {
   resources: FieldResource[];
   categories: BookCategory[];
-  query: string;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState<{ width: number; height: number; scale: number } | null>(null);
   const [tip, setTip] = useState<Tip | null>(null);
   const groups = groupsFor(resources, categories);
-  const needle = query.trim().toLowerCase();
 
   useLayoutEffect(() => {
     const frame = frameRef.current;
@@ -142,7 +126,7 @@ export function FieldView({
   if (!groups.length) {
     return (
       <div className="field-viewport">
-        <p className="field-empty">Nothing on the field yet. Add a book, an article, or a course.</p>
+        <p className="field-empty">Assign a category to a book, an article, or a course and it shows up here.</p>
       </div>
     );
   }
@@ -161,19 +145,14 @@ export function FieldView({
           >
             <div
               className="field-groups"
-              style={{ gridTemplateColumns: `repeat(${columnsFor(groups.length)}, minmax(280px, 320px))` }}
+              style={{ gridTemplateColumns: `repeat(${columnsFor(groups.length)}, minmax(420px, 520px))` }}
             >
               {groups.map((group) => {
                 const fills = group.items.flatMap((item) => item.segments);
                 const pct = sharePercent(fills);
-                const groupLit = !needle || group.label.toLowerCase().includes(needle);
-                const headerDim =
-                  Boolean(needle) &&
-                  !groupLit &&
-                  group.items.every((item) => !item.title.toLowerCase().includes(needle));
                 return (
                   <section key={group.id} className="field-group" aria-label={group.label}>
-                    <div className={headerDim ? "field-cat is-dim" : "field-cat"}>
+                    <div className="field-cat">
                       <div className="field-cat-head">
                         <h2>{group.label}</h2>
                         <span>{pct}%</span>
@@ -182,10 +161,9 @@ export function FieldView({
                     </div>
                     <ul>
                       {group.items.map((item) => {
-                        const dim = Boolean(needle) && !groupLit && !item.title.toLowerCase().includes(needle);
                         const figure = fieldFigure(item.kind, item.segments);
                         return (
-                          <li key={`${item.kind}:${item.id}`} className={dim ? "is-dim" : undefined}>
+                          <li key={`${item.kind}:${item.id}`}>
                             <Link
                               to={item.href}
                               onMouseEnter={(event) =>
@@ -207,7 +185,7 @@ export function FieldView({
                               }
                               onBlur={() => setTip((current) => (current?.item.id === item.id ? null : current))}
                             >
-                              <span className="field-kind">{KIND_LABEL[item.kind]}</span>
+                              <span className="field-title">{item.title}</span>
                               <ResourceBar item={item} color={group.color} />
                               <span className="field-figure">{figure}</span>
                             </Link>

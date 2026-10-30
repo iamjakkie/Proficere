@@ -71,7 +71,9 @@ export function ArticlePage() {
   return (
     <div className="stack">
       <p>
-        <Link to="/articles">{article.kind === "workbook" ? "Exercise sheets" : "Articles"}</Link>
+        <Link to={article.kind === "workbook" ? "/exercises" : "/articles"}>
+          {article.kind === "workbook" ? "Exercises" : "Articles"}
+        </Link>
       </p>
       <section className={article.kind === "workbook" ? "card workbook-shelf" : "card article-shelf"}>
         <p className="muted">{article.kind === "workbook" ? "Exercise sheet" : "Article"}</p>

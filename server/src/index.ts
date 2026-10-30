@@ -12,7 +12,7 @@ void cacheRemoteCovers(db).then((stored) => {
 });
 
 app.listen(config.port, config.host, () => {
-  console.log(`Progress Island API on http://${config.host}:${config.port}`);
+  console.log(`Proficere API on http://${config.host}:${config.port}`);
   if (!config.openRouterKey || !config.openRouterModel) {
     console.log("OpenRouter is not configured. Tracking works; AI actions are disabled.");
   }

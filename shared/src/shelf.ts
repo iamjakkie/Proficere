@@ -267,7 +267,7 @@ export function rankExerciseHits(hits: ExerciseHit[], finishedTitles: string[]):
     });
   }
   ranked.sort((a, b) => Number(b.university) - Number(a.university));
-  return ranked.slice(0, 8);
+  return ranked.slice(0, 24);
 }
 
 function matchedFinishedTitle(hit: ExerciseHit, titles: string[]): string | null {
@@ -275,18 +275,183 @@ function matchedFinishedTitle(hit: ExerciseHit, titles: string[]): string | null
   return titles.find((title) => title.trim().length > 3 && hay.includes(title.trim().toLowerCase().slice(0, 48))) ?? null;
 }
 
-export function searchQueryFromTitles(titles: string[]): string {
-  const parts: string[] = [];
-  let length = 0;
-  for (const title of titles.slice(0, 12)) {
-    const piece = title.trim();
-    if (!piece) continue;
-    if (length + piece.length > 400) break;
-    parts.push(piece);
-    length += piece.length + 4;
+const READING_BOILERPLATE =
+  /^(introduction|chapter outline|chapter review|chapter summary|section summary|review questions|summary|preface|foreword|overview|table of contents|contents|index|appendix|references|bibliography|key terms|key equations|conceptual questions|further reading|problems|exercises|problem set|problems\s*(?:&|and)\s*exercises|blank page|about openstax|about the authors?|about this book|answer key|solutions|glossary|acknowledg(?:e)?ments|copyright|title page|cover)$/i;
+
+const UNIVERSITY_SITE_QUERY = "(site:.edu OR site:.ac.uk OR site:.edu.au OR site:.ac.nz OR site:.ac.za OR site:.edu.sg)";
+
+type ReadingTopic = { chapter: number | null; heading: boolean; topic: string | null };
+
+function readingTopic(title: string): ReadingTopic {
+  const text = title.trim();
+  const chapterHeading = text.match(/^chapter\s+(\d+)\s*[:.\-–—]?\s*(.*)$/i);
+  if (chapterHeading) {
+    return { chapter: Number(chapterHeading[1]), heading: true, topic: cleanTopic(chapterHeading[2] ?? "") };
   }
-  if (!parts.length) return "";
-  return `${parts.join(" OR ")} exercise pdf`;
+  const section = text.match(/^(\d+)\.\d+(?:\.\d+)*\s*[:.\-–—]?\s+(.+)$/);
+  if (section) return { chapter: Number(section[1]), heading: false, topic: cleanTopic(section[2] ?? "") };
+  const numbered = text.match(/^\d+\s*[:.\-–—]\s+(.+)$/);
+  if (numbered) return { chapter: null, heading: false, topic: cleanTopic(numbered[1] ?? "") };
+  const lecture = text.match(/^(?:lecture|week|section|part|unit)\s+\d+\s*[:.\-–—]?\s*(.*)$/i);
+  if (lecture) return { chapter: null, heading: false, topic: cleanTopic(lecture[1] ?? "") };
+  return { chapter: null, heading: false, topic: cleanTopic(text) };
+}
+
+function cleanTopic(value: string): string | null {
+  const topic = value.trim().replace(/\s+/g, " ").replace(/"/g, "");
+  if (topic.length < 3 || READING_BOILERPLATE.test(topic)) return null;
+  return topic;
+}
+
+const TOPIC_STOP = new Set([
+  "a", "an", "the", "and", "or", "of", "in", "on", "for", "to", "with", "from", "by", "as", "at", "into",
+  "along", "using", "based", "via", "its", "their", "between", "through", "about", "over", "under", "per",
+  "vs", "versus", "system", "systems", "theory", "method", "methods", "analysis", "application",
+  "applications", "principle", "principles", "fundamental", "fundamentals", "introduction", "basic",
+  "basics", "advanced", "general", "overview", "review", "note", "notes", "chapter", "section", "part",
+  "unit", "model", "models", "filter", "filters", "equation", "equations", "formula", "formulas",
+  "function", "functions", "problem", "problems",
+]);
+
+export const EXERCISE_SEARCH_QUERY_CAP = 8;
+
+export type SearchReading = { title: string; resource?: string; parentTitle?: string | null };
+
+/** Chapter headings replace their numbered sections. Outlines and reviews are not topics. */
+export function resourceTopics(titles: string[]): string[] {
+  const parsed = titles.map((title) => readingTopic(title));
+  const chapterTopic = new Map<number, string>();
+  for (const item of parsed) {
+    if (item.heading && item.chapter != null && item.topic && !chapterTopic.has(item.chapter)) {
+      chapterTopic.set(item.chapter, item.topic);
+    }
+  }
+  const topics: string[] = [];
+  const seenChapters = new Set<number>();
+  const seenTopics = new Set<string>();
+  for (const item of parsed) {
+    if (item.chapter != null && chapterTopic.has(item.chapter)) {
+      if (seenChapters.has(item.chapter)) continue;
+      seenChapters.add(item.chapter);
+      const topic = chapterTopic.get(item.chapter)!;
+      if (seenTopics.has(topic.toLowerCase())) continue;
+      seenTopics.add(topic.toLowerCase());
+      topics.push(topic);
+      continue;
+    }
+    if (!item.topic || seenTopics.has(item.topic.toLowerCase())) continue;
+    seenTopics.add(item.topic.toLowerCase());
+    topics.push(item.topic);
+  }
+  return topics;
+}
+
+function stemTopicWord(word: string): string {
+  if (word.length > 5 && word.endsWith("ies")) return `${word.slice(0, -3)}y`;
+  if (
+    word.length > 4 &&
+    word.endsWith("s") &&
+    !word.endsWith("ss") &&
+    !word.endsWith("us") &&
+    !word.endsWith("is") &&
+    !word.endsWith("ics")
+  ) {
+    return word.slice(0, -1);
+  }
+  return word;
+}
+
+function contentTokens(topic: string): string[] {
+  const tokens: string[] = [];
+  for (const word of topic.toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ")) {
+    if (word.length < 3 || TOPIC_STOP.has(word)) continue;
+    const stem = stemTopicWord(word);
+    if (!tokens.includes(stem)) tokens.push(stem);
+  }
+  return tokens;
+}
+
+function headWord(topic: string, stem: string): string {
+  for (const word of topic.split(/\s+/)) {
+    const bare = word.replace(/[^A-Za-z0-9-]/g, "");
+    if (bare && stemTopicWord(bare.toLowerCase()) === stem) return bare;
+  }
+  return topic;
+}
+
+/** Group phrases that name the same subject. A shorter title wins over its longer variants. */
+export function clusterTopics(topics: string[]): string[] {
+  const clusters: { label: string; tokens: string[]; head: string }[] = [];
+  for (const topic of topics) {
+    const tokens = contentTokens(topic);
+    if (!tokens.length) continue;
+    const head = tokens[tokens.length - 1]!;
+    const match = clusters.find((cluster) => {
+      const known = new Set(cluster.tokens);
+      const shared = tokens.filter((token) => known.has(token));
+      if (!shared.length) return false;
+      const smaller = Math.min(tokens.length, cluster.tokens.length);
+      const subset = shared.length === smaller;
+      const sameHead = head === cluster.head && head.length >= 5;
+      const overlap = shared.length >= 2 && shared.length / smaller >= 0.5;
+      return subset || sameHead || overlap;
+    });
+    if (!match) {
+      clusters.push({ label: topic, tokens, head });
+      continue;
+    }
+    for (const token of tokens) if (!match.tokens.includes(token)) match.tokens.push(token);
+    const labelTokens = contentTokens(match.label);
+    const labelSet = new Set(labelTokens);
+    const incomingSet = new Set(tokens);
+    const incomingSubset = tokens.every((token) => labelSet.has(token));
+    const labelSubset = labelTokens.every((token) => incomingSet.has(token));
+    if (incomingSubset && tokens.length < labelTokens.length) match.label = topic;
+    else if (!incomingSubset && !labelSubset && head === match.head && head.length >= 5) {
+      match.label = headWord(topic, head);
+    }
+  }
+  return clusters.map((cluster) => cluster.label);
+}
+
+export function searchTopicsFromReadings(readings: SearchReading[]): string[] {
+  const byResource = new Map<string, SearchReading[]>();
+  const order: string[] = [];
+  for (const reading of readings) {
+    const key = reading.resource ?? "";
+    if (!byResource.has(key)) {
+      byResource.set(key, []);
+      order.push(key);
+    }
+    byResource.get(key)!.push(reading);
+  }
+  const topics: string[] = [];
+  for (const key of order) {
+    const synthesized = byResource.get(key)!.map((reading) => {
+      const parent = reading.parentTitle ? readingTopic(reading.parentTitle).topic : null;
+      return parent ?? reading.title;
+    });
+    topics.push(...resourceTopics(synthesized));
+  }
+  return clusterTopics(topics).slice(0, EXERCISE_SEARCH_QUERY_CAP);
+}
+
+export function searchTopicsFromTitles(titles: string[]): string[] {
+  return searchTopicsFromReadings(titles.map((title) => ({ title })));
+}
+
+export function googleQueryForTopic(topic: string): string {
+  const clean = topic.replace(/"/g, "");
+  const quoted = /\s/.test(clean) ? `"${clean}"` : clean;
+  return `${quoted} (exercises OR "problem set" OR homework) filetype:pdf ${UNIVERSITY_SITE_QUERY}`;
+}
+
+export function searchQueriesFromReadings(readings: SearchReading[]): string[] {
+  return searchTopicsFromReadings(readings).map(googleQueryForTopic);
+}
+
+export function searchQueriesFromTitles(titles: string[]): string[] {
+  return searchTopicsFromTitles(titles).map(googleQueryForTopic);
 }
 
 export const EXERCISE_SEARCH_INTERVAL_MS = 24 * 60 * 60 * 1000;

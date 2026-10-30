@@ -12,7 +12,9 @@ import {
   parseLessonList,
   rankExerciseHits,
   searchIsDue,
-  searchQueryFromTitles,
+  searchQueriesFromTitles,
+  searchTopicsFromReadings,
+  searchTopicsFromTitles,
   sharePercent,
   WorkshopPlanSchema,
 } from "./shelf.js";
@@ -53,8 +55,56 @@ describe("shelf helpers", () => {
   it("does not invent hits from an empty or unexpected payload", () => {
     expect(exerciseHitsFromJson({})).toEqual([]);
     expect(exerciseHitsFromJson({ items: [{ title: "Only a title" }] })).toEqual([]);
-    expect(searchQueryFromTitles([])).toBe("");
-    expect(searchQueryFromTitles(["Estimation"])).toBe("Estimation exercise pdf");
+    expect(searchQueriesFromTitles([])).toEqual([]);
+    expect(searchQueriesFromTitles(["Estimation"])[0]).toContain("Estimation");
+    expect(searchQueriesFromTitles(["Estimation"])[0]).toContain("filetype:pdf");
+    expect(searchQueriesFromTitles(["Estimation"])[0]).toContain("site:.edu");
+  });
+
+  it("sends one Google query per topic and groups similar chapters", () => {
+    const titles = [
+      "3.1 Position, Displacement, and Average Velocity",
+      "Introduction",
+      "Chapter Outline",
+      "Chapter 3 Motion Along a Straight Line",
+      "Chapter Review",
+      "2.4 Products of Vectors",
+      "2.1 Scalars and Vectors",
+      "Chapter 2 Vectors",
+      "Lecture 2: Forces",
+    ];
+    expect(searchTopicsFromTitles(titles)).toEqual(["Motion Along a Straight Line", "Vectors", "Forces"]);
+    const queries = searchQueriesFromTitles(titles);
+    expect(queries).toHaveLength(3);
+    expect(queries[0]).toBe(
+      '"Motion Along a Straight Line" (exercises OR "problem set" OR homework) filetype:pdf (site:.edu OR site:.ac.uk OR site:.edu.au OR site:.ac.nz OR site:.ac.za OR site:.edu.sg)',
+    );
+    expect(queries[1]).toContain("Vectors");
+    expect(queries.every((query) => !/\d/.test(query))).toBe(true);
+    expect(
+      searchTopicsFromTitles(["Blank Page", "About OpenStax", "Problems & Exercises", "Section Summary", "Forces"]),
+    ).toEqual(["Forces"]);
+    expect(
+      searchTopicsFromTitles([
+        "Products of Vectors",
+        "Algebra of Vectors",
+        "Kalman Filter",
+        "Extended Kalman Filter",
+        "Significant Figures",
+      ]),
+    ).toEqual(["Vectors", "Kalman Filter", "Significant Figures"]);
+    expect(
+      searchTopicsFromTitles([
+        "Introduction: The Nature of Science and Physics",
+        "Introduction to Science and the Realm of Physics, Physical Quantities, and Units",
+      ]),
+    ).toEqual(["Introduction: The Nature of Science and Physics"]);
+    expect(
+      searchTopicsFromReadings([
+        { title: "3.1 Position", resource: "Physics", parentTitle: "Chapter 3 Motion Along a Straight Line" },
+        { title: "Chapter 3 Graph Theory", resource: "Discrete" },
+      ]),
+    ).toEqual(["Motion Along a Straight Line", "Graph Theory"]);
   });
 
   it("treats a search as due once a day has passed", () => {

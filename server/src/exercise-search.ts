@@ -2,15 +2,17 @@ import {
   AppError,
   EXERCISE_SEARCH_UNCONFIGURED,
   exerciseHitsFromJson,
+  type ExerciseHit,
   searchIsDue,
-  searchQueryFromTitles,
+  searchQueriesFromReadings,
+  searchTopicsFromReadings,
 } from "@progress-island/shared";
 import { config, exerciseSearchConfigured } from "./config.js";
 import type { Db } from "./db.js";
 import {
   exerciseSearchLastAt,
   exerciseSearchOptIn,
-  finishedReadingTitles,
+  finishedReadings,
   listActiveSuggestions,
   setExerciseSearchLastAt,
   setExerciseSearchOptIn,
@@ -23,19 +25,20 @@ export type ExerciseSearchState = {
   optedIn: boolean;
   lastAt: string | null;
   willSend: string[];
-  query: string;
+  queries: string[];
   suggestions: ReturnType<typeof listActiveSuggestions>;
   message: string | null;
 };
 
 export function exerciseSearchState(db: Db): ExerciseSearchState {
-  const willSend = finishedReadingTitles(db);
+  const readings = finishedReadings(db);
+  const willSend = searchTopicsFromReadings(readings);
   return {
     configured: exerciseSearchConfigured(),
     optedIn: Boolean(exerciseSearchOptIn(db)),
     lastAt: exerciseSearchLastAt(db),
     willSend,
-    query: searchQueryFromTitles(willSend),
+    queries: searchQueriesFromReadings(readings),
     suggestions: listActiveSuggestions(db),
     message: exerciseSearchConfigured() ? null : EXERCISE_SEARCH_UNCONFIGURED,
   };
@@ -60,15 +63,19 @@ export async function maybeSearch(
   if (!opts.force && !searchIsDue(exerciseSearchLastAt(db), opts.now ?? Date.now())) {
     return { ran: false, reason: "interval", added: 0 };
   }
-  const titles = finishedReadingTitles(db);
-  const query = searchQueryFromTitles(titles);
-  if (!query) return { ran: false, reason: "nothing_finished", added: 0 };
+  const readings = finishedReadings(db);
+  const topics = searchTopicsFromReadings(readings);
+  const queries = searchQueriesFromReadings(readings);
+  if (!queries.length) return { ran: false, reason: "nothing_finished", added: 0 };
   const before = listActiveSuggestions(db).length;
   setExerciseSearchLastAt(db);
-  const hits = await fetchExerciseHits(endpoint, apiKey, query, opts.fetchImpl ?? fetch);
-  storeExerciseHits(db, titles, hits);
+  const hits: ExerciseHit[] = [];
+  for (const query of queries) {
+    hits.push(...(await fetchExerciseHits(endpoint, apiKey, query, opts.fetchImpl ?? fetch)));
+  }
+  storeExerciseHits(db, topics, hits);
   const added = Math.max(0, listActiveSuggestions(db).length - before);
-  logActivity(db, "exercise_search", { titles: titles.length, added });
+  logActivity(db, "exercise_search", { titles: readings.length, queries: queries.length, added });
   return { ran: true, reason: "ok", added };
 }
 
@@ -131,15 +138,14 @@ export async function runManualExerciseSearch(db: Db, consent: boolean): Promise
   if (!consent && !exerciseSearchOptIn(db)) {
     const state = exerciseSearchState(db);
     throw new AppError(
-      "Search sends finished chapter and lesson titles to the endpoint in EXERCISE_SEARCH_ENDPOINT. Confirm that before the first search.",
+      "Search sends a Google query for each topic to the endpoint in EXERCISE_SEARCH_ENDPOINT. Confirm that before the first search.",
       "consent_required",
       400,
-      { willSend: state.willSend, query: state.query },
+      { willSend: state.willSend, queries: state.queries },
     );
   }
   if (consent) setExerciseSearchOptIn(db);
-  const titles = finishedReadingTitles(db);
-  if (!searchQueryFromTitles(titles)) {
+  if (!searchQueriesFromReadings(finishedReadings(db)).length) {
     throw new AppError(
       "Finish a book chapter or a course lesson before searching. Nothing was sent.",
       "nothing_finished",

@@ -72,7 +72,7 @@ export function saveLibraryFolder(db: Db, folder: string): ReturnType<typeof des
   const resolved = path.resolve(trimmed);
   if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
     throw new AppError(
-      "Choose a folder that exists on this Mac. Progress Island only reads PDF files inside it.",
+      "Choose a folder that exists on this Mac. Proficere only reads PDF files inside it.",
       "library_path",
       400,
     );

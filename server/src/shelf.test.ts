@@ -271,6 +271,7 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     updateChapter(h.db, chapters[0]!.id, { progressPercent: 100 });
     updateChapter(h.db, chapters[1]!.id, { progressPercent: 40 });
     const article = createArticle(h.db, { title: "Field note" });
+    const sheet = createArticle(h.db, { title: "Exercise sheet", kind: "workbook" });
     const app = createApp(h.db);
     const assigned = await request(app)
       .put(`/api/articles/${article.id}/category`)
@@ -296,6 +297,7 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
       href: `/articles/${article.id}`,
     });
     expect(field.find((item) => item.id === course.id)?.segments).toEqual([1, 0]);
+    expect(field.some((item) => item.id === sheet.id)).toBe(false);
 
     const dashboard = await request(app).get("/api/dashboard").expect(200);
     expect(dashboard.body.field).toHaveLength(3);

@@ -14,7 +14,7 @@ function assigned(category: string | null, ids: Set<string>): string | null {
   return category;
 }
 
-/** Books, articles, and courses for the home field. Workshops and exams are not included. */
+/** Books, articles, and courses for the home field. Exercise sheets, workshops, and exams are not included. */
 export function fieldResources(db: Db): FieldResource[] {
   const ids = new Set(listCategories(db).map((category) => category.id));
   const resources: FieldResource[] = [];
@@ -32,6 +32,7 @@ export function fieldResources(db: Db): FieldResource[] {
   }
 
   for (const article of listArticles(db)) {
+    if (article.kind === "workbook") continue;
     resources.push({
       id: article.id,
       kind: "article",

@@ -899,7 +899,7 @@ export function createApp(db: Db): Express {
     res.json({
       items: printQueue(db),
       notice:
-        "This is a checklist of chapters you marked printed. Progress Island does not extract or print book pages.",
+        "This is a checklist of chapters you marked printed. Proficere does not extract or print book pages.",
     });
   });
 

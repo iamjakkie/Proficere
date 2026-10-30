@@ -11,6 +11,7 @@ import { ReadPage } from "./pages/ReadPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { ArticlesPage } from "./pages/ArticlesPage";
+import { ExercisesPage } from "./pages/ExercisesPage";
 import { ArticlePage } from "./pages/ArticlePage";
 import { ArticleReadPage } from "./pages/ArticleReadPage";
 import { CoursesPage } from "./pages/CoursesPage";
@@ -33,6 +34,7 @@ const router = createBrowserRouter([
       { path: "settings", element: <SettingsPage /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "articles", element: <ArticlesPage /> },
+      { path: "exercises", element: <ExercisesPage /> },
       { path: "articles/:id", element: <ArticlePage /> },
       { path: "articles/:id/read", element: <ArticleReadPage /> },
       { path: "courses", element: <CoursesPage /> },

@@ -10,6 +10,7 @@ import {
   type Course,
   type CourseLesson,
   type ExerciseHit,
+  type SearchReading,
   type ExerciseSuggestion,
   type IslandMarker,
   type WorkshopCard,
@@ -517,21 +518,32 @@ export function listActiveSuggestions(db: Db): ExerciseSuggestion[] {
   ).map(mapSuggestion);
 }
 
-export function finishedReadingTitles(db: Db): string[] {
+export function finishedReadings(db: Db): SearchReading[] {
   const chapters = db
-    .prepare("SELECT title FROM chapters WHERE status = 'completed' AND selected = 1 ORDER BY updated_at DESC")
-    .all() as { title: string }[];
+    .prepare(
+      `SELECT c.title AS title, b.title AS resource, p.title AS parentTitle, c.updated_at AS updated_at
+       FROM chapters c
+       JOIN books b ON b.id = c.book_id
+       LEFT JOIN chapters p ON p.id = c.parent_id
+       WHERE c.status = 'completed' AND c.selected = 1
+       ORDER BY c.updated_at DESC
+       LIMIT 80`,
+    )
+    .all() as { title: string; resource: string; parentTitle: string | null; updated_at: string }[];
   const lessons = db
-    .prepare("SELECT title FROM course_lessons WHERE done = 1 ORDER BY updated_at DESC")
-    .all() as { title: string }[];
-  const titles: string[] = [];
-  for (const row of [...chapters, ...lessons]) {
-    const title = row.title.trim();
-    if (!title || titles.some((item) => item.toLowerCase() === title.toLowerCase())) continue;
-    titles.push(title);
-    if (titles.length >= 12) break;
-  }
-  return titles;
+    .prepare(
+      `SELECT l.title AS title, c.title AS resource, l.updated_at AS updated_at
+       FROM course_lessons l
+       JOIN courses c ON c.id = l.course_id
+       WHERE l.done = 1
+       ORDER BY l.updated_at DESC
+       LIMIT 80`,
+    )
+    .all() as { title: string; resource: string; updated_at: string }[];
+  return [...chapters, ...lessons.map((lesson) => ({ ...lesson, parentTitle: null }))]
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+    .slice(0, 80)
+    .map((row) => ({ title: row.title, resource: row.resource, parentTitle: row.parentTitle }));
 }
 
 export function exerciseSearchOptIn(db: Db): string | null {
