@@ -30,11 +30,11 @@ export function sympyImports(line: string): string[] | null {
   return names;
 }
 
-const SAFE = /^[A-Za-z0-9_+\-*/^().,\s<>[\].]+$/;
+const SAFE = /^[A-Za-z0-9_+\-*/^().,\s<>[\].=]+$/;
 const NAME = /^[A-Za-z][A-Za-z0-9_]*$/;
 
 function safe(expr: string): boolean {
-  return expr.length > 0 && expr.length <= 2000 && !expr.includes("__") && !expr.includes("=") && SAFE.test(expr);
+  return expr.length > 0 && expr.length <= 2000 && !expr.includes("__") && SAFE.test(expr);
 }
 
 function readBrace(source: string, open: number): { body: string; end: number } | null {
@@ -136,7 +136,7 @@ function splitComma(source: string): string[] {
   return parts.map((part) => part.trim()).filter(Boolean);
 }
 
-/** `.subs({a: 1, b: -1})` becomes `.subs(a, 1).subs(b, -1)`, which the checker can read. */
+/** `.subs({x: P[0], y: P[1]})` becomes `.subs(x, P[0]).subs(y, P[1])`, which the checker can read. */
 function expandSubs(source: string): string {
   let out = "";
   for (let index = 0; index < source.length; ) {
@@ -166,7 +166,7 @@ function expandSubs(source: string): string {
       const colon = pair.indexOf(":");
       const key = colon > 0 ? pair.slice(0, colon).trim() : "";
       const value = colon > 0 ? pair.slice(colon + 1).trim() : "";
-      if (!NAME.test(key) || !/^-?[A-Za-z0-9_]+$/.test(value)) {
+      if (!NAME.test(key) || !safe(value)) {
         valid = false;
         break;
       }

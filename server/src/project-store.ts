@@ -64,6 +64,7 @@ export type SubmissionArtifacts = {
   assumptions: string;
   deliverable: string;
   prediction: string | null;
+  tasks?: { index: number; answer: string }[];
 };
 
 export type ReviewRecord = {

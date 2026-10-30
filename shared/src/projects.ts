@@ -29,13 +29,23 @@ export const ProjectSourceRefSchema = z.object({
   grounding: GroundingKindSchema,
   passage: z.string().nullable(),
 });
+export const ExamExerciseSchema = z.object({
+  ask: z.string().min(1).max(320),
+  given: z.array(z.string().max(200)).max(6).default([]),
+  target: z.string().max(40).default(""),
+  reference: z.string().max(400).default(""),
+  kind: z.enum(["calculation", "theory"]),
+});
+export type ExamExercise = z.infer<typeof ExamExerciseSchema>;
+
 export const ExamTaskSchema = z.object({
   prompt: z.string().min(1),
-  given: z.array(z.string()).max(8),
+  given: z.array(z.string()).max(40),
   target: z.string().min(1),
   reference: z.string().max(400).optional().default(""),
   required: z.array(z.string().max(400)).max(12).default([]),
   starter: z.string().max(500).default(""),
+  exercises: z.array(ExamExerciseSchema).max(10).default([]),
 });
 export type ExamTask = z.infer<typeof ExamTaskSchema>;
 
@@ -491,18 +501,31 @@ export function assessmentLabelText(
 
 export function redactProposal(proposal: ProjectProposal): ProjectProposal {
   if (!proposal.exam) return proposal;
-  return { ...proposal, exam: { ...proposal.exam, reference: "", required: [] } };
+  return {
+    ...proposal,
+    exam: {
+      ...proposal.exam,
+      reference: "",
+      required: [],
+      exercises: (proposal.exam.exercises ?? []).map((item) => ({ ...item, reference: "" })),
+    },
+  };
 }
 
 export function preserveExamKey(incoming: ProjectProposal, stored: ProjectProposal): ProjectProposal {
   if (!stored.exam) return incoming;
   if (!incoming.exam) return { ...incoming, exam: stored.exam };
+  const storedExercises = stored.exam.exercises ?? [];
   return {
     ...incoming,
     exam: {
       ...incoming.exam,
       reference: stored.exam.reference,
       required: stored.exam.required,
+      exercises: (incoming.exam.exercises ?? []).map((item, index) => ({
+        ...item,
+        reference: storedExercises[index]?.reference ?? item.reference,
+      })),
     },
   };
 }

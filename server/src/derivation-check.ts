@@ -48,6 +48,7 @@ export function checkDerivation(input: {
   reference: string;
   required: string[];
   imports?: string[];
+  checks?: { name: string; expr: string }[];
 }): Promise<DerivationReport> {
   const project = path.join(config.root, "checker");
   return new Promise((resolve) => {

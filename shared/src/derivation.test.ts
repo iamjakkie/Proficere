@@ -33,6 +33,37 @@ z = (e0.subs({a: 1, b: -1}))[0, 0]
     expect(parsed.steps.every((step) => step.error === null)).toBe(true);
   });
 
+  it("reads a substitution of a matrix entry inside a column of equations", () => {
+    const parsed = parseDerivation(`P = Matrix([[9], [12]])
+circle_0 = Eq(x**2 + y**2, r_0**2)
+circle_1 = Eq((x-24)**2 + y**2, r_1**2)
+circle_2 = Eq(x**2 + (y-32)**2, r_2**2)
+verification = Matrix([
+circle_0.subs({x: P[0], y: P[1]}),
+circle_1.subs({x: P[0], y: P[1]}),
+circle_2.subs({x: P[0], y: P[1]})
+])
+`);
+    const verification = parsed.steps.find((step) => step.name === "verification");
+    expect(parsed.error).toBeNull();
+    expect(verification?.error).toBeNull();
+    expect(verification?.expr).toBe(
+      "Matrix([ circle_0.subs(x, P[0]).subs(y, P[1]), circle_1.subs(x, P[0]).subs(y, P[1]), circle_2.subs(x, P[0]).subs(y, P[1]) ])",
+    );
+  });
+
+  it("reads solve with a keyword and equation sides", () => {
+    const parsed = parseDerivation(`line_1 = Eq(
+simplify(expand(circle_1.lhs - circle_0.lhs)),
+simplify(expand(circle_1.rhs - circle_0.rhs))
+)
+P = solve([line_1, line_2], [x,y], dict=True)[0]
+`);
+    expect(parsed.steps.find((step) => step.name === "line_1")?.error).toBeNull();
+    expect(parsed.steps.find((step) => step.name === "P")?.error).toBeNull();
+    expect(parsed.steps.find((step) => step.name === "P")?.expr).toBe("solve([line_1, line_2], [x,y], dict=True)[0]");
+  });
+
   it("turns the displayed exam data into calculations", () => {
     const seeded = seedCalculations([
       "F = \\begin{bmatrix} 1 & 3 \\\\ 0 & 1 \\end{bmatrix}",
@@ -63,6 +94,25 @@ z = (e0.subs({a: 1, b: -1}))[0, 0]
     const kept = preserveExamKey(hidden, stored);
     expect(kept.exam?.reference).toBe("1/2");
     expect(kept.exam?.required).toEqual(["P/(P+R)"]);
+  });
+
+  it("hides each exercise answer and restores it with the exam", () => {
+    const stored = {
+      exam: {
+        prompt: "1. Assign speed.",
+        given: ["distance = 12"],
+        target: "speed",
+        reference: "distance/time",
+        required: [],
+        starter: "",
+        exercises: [
+          { ask: "Assign `speed`.", given: ["distance = 12", "time = 3"], target: "speed", reference: "distance/time", kind: "calculation" as const },
+        ],
+      },
+    } as ProjectProposal;
+    const hidden = redactProposal(stored);
+    expect(hidden.exam?.exercises[0]?.reference).toBe("");
+    expect(preserveExamKey(hidden, stored).exam?.exercises[0]?.reference).toBe("distance/time");
   });
 
   it("treats a derivation criterion as ready for an objective exam", () => {

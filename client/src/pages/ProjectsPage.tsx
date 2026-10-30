@@ -83,6 +83,8 @@ export function ProjectsPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [openProposal, setOpenProposal] = useState<string | null>(null);
   const [deliverable, setDeliverable] = useState("");
+  const [answers, setAnswers] = useState<string[]>([]);
+  const [runs, setRuns] = useState<(RunResult | null)[]>([]);
   const [filter, setFilter] = useState("");
   const [seeded, setSeeded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,8 +122,17 @@ export function ProjectsPage() {
   useEffect(() => {
     const exam = detail?.project.brief.exam;
     if (!detail || !exam || scriptFor === detail.project.id) return;
-    const starter = exam.starter.trim();
-    setDeliverable(starter || seedCalculations(exam.given ?? []));
+    const exercises = exam.exercises ?? [];
+    if (exercises.length > 0) {
+      setAnswers(exercises.map((item) => (item.kind === "calculation" ? seedCalculations(item.given) : "")));
+      setRuns(exercises.map(() => null));
+      setDeliverable("");
+    } else {
+      setAnswers([]);
+      setRuns([]);
+      const starter = exam.starter.trim();
+      setDeliverable(starter || seedCalculations(exam.given ?? []));
+    }
     setScriptFor(detail.project.id);
   }, [detail, scriptFor]);
 
@@ -203,6 +214,23 @@ export function ProjectsPage() {
     }
   }
 
+  async function runTask(index: number) {
+    if (!detail) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api<RunResult>(`/api/projects/${detail.project.id}/run`, {
+        method: "POST",
+        body: JSON.stringify({ deliverable: answers[index] ?? "", exercise: index }),
+      });
+      setRuns((current) => current.map((item, itemIndex) => (itemIndex === index ? result : item)));
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function runExam() {
     if (!detail) return;
     setBusy(true);
@@ -223,7 +251,10 @@ export function ProjectsPage() {
 
   async function submitExam() {
     if (!detail) return;
-    if (!gradeConsent) {
+    const exercises = detail.project.brief.exam?.exercises ?? [];
+    const workbook = exercises.length > 0;
+    const needsModel = !workbook || exercises.some((item) => item.kind === "theory");
+    if (needsModel && !gradeConsent) {
       setError("Confirm the OpenRouter notice before submitting.");
       return;
     }
@@ -237,18 +268,33 @@ export function ProjectsPage() {
     setBusy(true);
     setError(null);
     try {
+      const taskPayload = workbook
+        ? exercises.map((_, index) => ({ index, answer: answers[index] ?? "" }))
+        : undefined;
+      const taskScript = workbook
+        ? exercises
+            .map((item, index) => (item.kind === "calculation" ? answers[index] ?? "" : ""))
+            .filter((item) => item.trim())
+            .join("\n\n")
+        : deliverable;
       const saved = await api<{ submission: { id: string } }>(`/api/projects/${detail.project.id}/submissions`, {
         method: "POST",
         body: JSON.stringify({
-          explanation: notes.join("\n"),
+          explanation: workbook
+            ? exercises
+                .map((item, index) => (item.kind === "theory" ? answers[index] ?? "" : ""))
+                .filter((item) => item.trim())
+                .join("\n")
+            : notes.join("\n"),
           assumptions: assumed.join("\n"),
-          deliverable,
+          deliverable: taskScript,
           prediction: null,
+          tasks: taskPayload,
         }),
       });
       await api(`/api/projects/${detail.project.id}/submissions/${saved.submission.id}/verify`, {
         method: "POST",
-        body: JSON.stringify({ consent: true }),
+        body: JSON.stringify({ consent: needsModel }),
       });
       await load(detail.project.id);
     } catch (err) {
@@ -279,7 +325,7 @@ export function ProjectsPage() {
   return (
     <div className="stack">
       <div>
-        <h1>Projects</h1>
+        <h1>Exams</h1>
         <p className="muted">Each row is an exam. Open it to write the derivation.</p>
       </div>
       {error && (
@@ -358,7 +404,11 @@ export function ProjectsPage() {
               </div>
               {openProposal === proposal.id && (
                 <div className="project-body stack">
-                  <ExamStatement prompt={proposal.exam?.prompt || proposal.problem} given={proposal.exam?.given} />
+                  <ExamStatement
+                    prompt={proposal.exam?.prompt || proposal.problem}
+                    given={proposal.exam?.given}
+                    exercises={proposal.exam?.exercises}
+                  />
                 </div>
               )}
             </li>
@@ -383,52 +433,75 @@ export function ProjectsPage() {
                 </div>
                 {open && detail && (
                   <div className="project-body stack">
-                    <ExamStatement
-                      prompt={detail.project.brief.exam?.prompt || detail.project.brief.problem}
-                      given={detail.project.brief.exam?.given}
-                    />
-                    {(detail.project.status === "active" || detail.project.status === "paused") && (
-                      <form
-                        className="stack"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void submitExam();
-                        }}
-                      >
-                        <p className="muted">
-                          Each line is a calculation. <code>F*x + G*u</code> is enough, and <code>x = F*x + G*u</code> keeps
-                          the result. SymPy names such as <code>Eq</code> are available, and{" "}
-                          <code>from sympy import Name</code> adds another one. <code>#</code> is a note. Run checks it
-                          with SymPy. Submit sends it for a grade.
-                        </p>
-                        <div className="exam-work">
-                          <textarea
-                            className="exam-editor"
-                            value={deliverable}
-                            onChange={(event) => setDeliverable(event.target.value)}
-                            spellCheck={false}
-                            placeholder={"x = F*x + G*u"}
-                            required
-                          />
-                          {runResult ? (
-                            <RunReport result={runResult} source={deliverable} />
-                          ) : (
-                            <div className="exam-output exam-output-empty">Run to check this calculation.</div>
-                          )}
-                        </div>
-                        <label className="row">
-                          <input type="checkbox" checked={gradeConsent} onChange={(event) => setGradeConsent(event.target.checked)} />
-                          Send this derivation to OpenRouter for a grade
-                        </label>
-                        <div className="row">
-                          <button className="btn" type="button" disabled={busy} onClick={() => void runExam()}>
-                            Run
-                          </button>
-                          <button className="btn primary" type="submit" disabled={busy || !gradeConsent}>
-                            Submit
-                          </button>
-                        </div>
-                      </form>
+                    {(detail.project.brief.exam?.exercises.length ?? 0) > 0 ? (
+                      <ExamTasks
+                        exam={detail.project.brief.exam}
+                        active={detail.project.status === "active" || detail.project.status === "paused"}
+                        answers={answers}
+                        runs={runs}
+                        busy={busy}
+                        gradeConsent={gradeConsent}
+                        onAnswer={(index, value) =>
+                          setAnswers((current) => {
+                            const next = current.slice();
+                            next[index] = value;
+                            return next;
+                          })
+                        }
+                        onConsent={setGradeConsent}
+                        onRun={(index) => void runTask(index)}
+                        onSubmit={() => void submitExam()}
+                      />
+                    ) : (
+                      <>
+                        <ExamStatement
+                          prompt={detail.project.brief.exam?.prompt || detail.project.brief.problem}
+                          given={detail.project.brief.exam?.given}
+                        />
+                        {(detail.project.status === "active" || detail.project.status === "paused") && (
+                          <form
+                            className="stack"
+                            onSubmit={(event) => {
+                              event.preventDefault();
+                              void submitExam();
+                            }}
+                          >
+                            <p className="muted">
+                              Each line is a calculation. <code>F*x + G*u</code> is enough, and <code>x = F*x + G*u</code>{" "}
+                              keeps the result. SymPy names such as <code>Eq</code> are available, and{" "}
+                              <code>from sympy import Name</code> adds another one. <code>#</code> is a note. Run checks it
+                              with SymPy. Submit sends it for a grade.
+                            </p>
+                            <div className="exam-work">
+                              <textarea
+                                className="exam-editor"
+                                value={deliverable}
+                                onChange={(event) => setDeliverable(event.target.value)}
+                                spellCheck={false}
+                                placeholder={"x = F*x + G*u"}
+                                required
+                              />
+                              {runResult ? (
+                                <RunReport result={runResult} source={deliverable} />
+                              ) : (
+                                <div className="exam-output exam-output-empty">Run to check this calculation.</div>
+                              )}
+                            </div>
+                            <label className="row">
+                              <input type="checkbox" checked={gradeConsent} onChange={(event) => setGradeConsent(event.target.checked)} />
+                              Send this derivation to OpenRouter for a grade
+                            </label>
+                            <div className="row">
+                              <button className="btn" type="button" disabled={busy} onClick={() => void runExam()}>
+                                Run
+                              </button>
+                              <button className="btn primary" type="submit" disabled={busy || !gradeConsent}>
+                                Submit
+                              </button>
+                            </div>
+                          </form>
+                        )}
+                      </>
                     )}
                     {latestReview && <ReviewReport review={latestReview} />}
                   </div>
@@ -504,8 +577,127 @@ function RunReport({ result, source }: { result: RunResult; source: string }) {
   );
 }
 
-function ExamStatement({ prompt, given }: { prompt: string; given: string[] | undefined }) {
+function ExamTasks({
+  exam,
+  active,
+  answers,
+  runs,
+  busy,
+  gradeConsent,
+  onAnswer,
+  onConsent,
+  onRun,
+  onSubmit,
+}: {
+  exam: NonNullable<ProjectProposal["exam"]>;
+  active: boolean;
+  answers: string[];
+  runs: (RunResult | null)[];
+  busy: boolean;
+  gradeConsent: boolean;
+  onAnswer: (index: number, value: string) => void;
+  onConsent: (value: boolean) => void;
+  onRun: (index: number) => void;
+  onSubmit: () => void;
+}) {
+  const exercises = exam.exercises ?? [];
+  const needsModel = exercises.some((item) => item.kind === "theory");
+  return (
+    <form
+      className="stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+    >
+      <PlaneFigure given={exam.given} />
+      {exercises.map((item, index) => (
+        <section className="exam-task" key={`${index}-${item.ask}`}>
+          <h3>Task {index + 1}</h3>
+          <Markdown source={item.ask} />
+          <ExamData given={item.given} heading={false} />
+          {active && item.kind === "calculation" ? (
+            <>
+              <div className="exam-work exam-task-work">
+                <textarea
+                  className="exam-editor"
+                  value={answers[index] ?? ""}
+                  onChange={(event) => onAnswer(index, event.target.value)}
+                  spellCheck={false}
+                  aria-label={`Calculation for task ${index + 1}`}
+                  placeholder={`${item.target} = ...`}
+                />
+                {runs[index] ? (
+                  <RunReport result={runs[index]} source={answers[index] ?? ""} />
+                ) : (
+                  <div className="exam-output exam-output-empty">Run to check this task.</div>
+                )}
+              </div>
+              <div className="row">
+                <button className="btn" type="button" disabled={busy} onClick={() => onRun(index)}>
+                  Run
+                </button>
+              </div>
+            </>
+          ) : active ? (
+            <textarea
+              className="exam-written"
+              value={answers[index] ?? ""}
+              onChange={(event) => onAnswer(index, event.target.value)}
+              aria-label={`Written answer for task ${index + 1}`}
+              placeholder="Write the answer"
+            />
+          ) : null}
+        </section>
+      ))}
+      {active && (
+        <>
+          <p className="muted">
+            Run checks one calculation. A written task stays in its own box. Submit grades the exam as a count of the
+            tasks that match. Seven out of ten passes the exam.
+          </p>
+          {needsModel && (
+            <label className="row">
+              <input type="checkbox" checked={gradeConsent} onChange={(event) => onConsent(event.target.checked)} />
+              Send the written answers to OpenRouter for a grade
+            </label>
+          )}
+          <div className="row">
+            <button className="btn primary" type="submit" disabled={busy || (needsModel && !gradeConsent)}>
+              Submit
+            </button>
+          </div>
+        </>
+      )}
+    </form>
+  );
+}
+
+function ExamStatement({
+  prompt,
+  given,
+  exercises,
+}: {
+  prompt: string;
+  given: string[] | undefined;
+  exercises?: { ask: string; given: string[]; kind: string }[];
+}) {
   const rows = given ?? [];
+  if (exercises && exercises.length > 0) {
+    return (
+      <>
+        <ol className="exam-exercises">
+          {exercises.map((item, index) => (
+            <li key={`${index}-${item.ask}`}>
+              <Markdown source={item.ask} />
+              <ExamData given={item.given} heading={false} />
+            </li>
+          ))}
+        </ol>
+        <PlaneFigure given={rows} />
+      </>
+    );
+  }
   const shown = prompt.replace(/\s+/g, "");
   const extra = rows.filter((item) => !shown.includes(item.replace(/\s+/g, "")));
   return (
@@ -517,11 +709,11 @@ function ExamStatement({ prompt, given }: { prompt: string; given: string[] | un
   );
 }
 
-function ExamData({ given }: { given: string[] | undefined }) {
+function ExamData({ given, heading = true }: { given: string[] | undefined; heading?: boolean }) {
   if (!given?.length) return null;
   return (
     <div className="stack">
-      <h3>Data</h3>
+      {heading ? <h3>Data</h3> : null}
       {given.map((item) => (
         <Markdown key={item} source={`\\[${givenTex(item)}\\]`} />
       ))}
@@ -619,12 +811,12 @@ function ReviewReport({ review }: { review: Review }) {
               : "banner"
         }
       >
-        {review.grade ? `Grade ${review.grade}. ` : ""}
+        {review.grade && /^\d+\/\d+$/.test(review.grade) ? `${review.grade}. ` : review.grade ? `Grade ${review.grade}. ` : ""}
         {labelText(review.label)}
       </p>
       {(review.notes ?? []).map((note) => (
         <p key={`${note.line}-${note.text}`}>
-          Line {note.line}: {note.text}
+          {review.grade && /^\d+\/\d+$/.test(review.grade) ? `Task ${note.line}. ${note.text}` : `Line ${note.line}: ${note.text}`}
         </p>
       ))}
       {review.operational && <p className="banner">{review.operational.message}</p>}

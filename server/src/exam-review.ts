@@ -1,7 +1,7 @@
 import type { CriterionCheck, ProjectProposal } from "@progress-island/shared";
 import { parseDerivation, sympyImports } from "@progress-island/shared";
 import { checkDerivation } from "./derivation-check.js";
-import { gradeExamWithAi } from "./project-ai.js";
+import { gradeExamWithAi, gradeWrittenAnswers, taskScore } from "./project-ai.js";
 
 export type ExamReview = {
   objective: CriterionCheck[];
@@ -37,8 +37,11 @@ function hides(text: string, secrets: string[]): boolean {
 export async function reviewExam(input: {
   brief: ProjectProposal;
   deliverable: string;
+  tasks?: { index: number; answer: string }[];
   gradeWithModel: boolean;
 }): Promise<ExamReview> {
+  const exercises = input.brief.exam?.exercises ?? [];
+  if (exercises.length >= 3) return reviewWorkbook(input);
   const exam = input.brief.exam;
   if (!exam?.reference?.trim() || exam.required.length === 0) {
     return {
@@ -67,14 +70,16 @@ export async function reviewExam(input: {
       notes: [{ line: 1, text: parsed.error }],
     };
   }
+  const calculations = (exam.exercises ?? []).filter((item) => item.kind === "calculation" && item.target && item.reference);
   const report = await checkDerivation({
     steps: parsed.steps
       .filter((step) => step.error === null && !step.declaration)
       .map((step) => ({ line: step.line, name: step.name, expr: step.expr })),
     target: exam.target,
     reference: exam.reference,
-    required: exam.required,
+    required: calculations.length > 0 ? [] : exam.required,
     imports: parsed.imports,
+    checks: calculations.map((item) => ({ name: item.target, expr: item.reference })),
   });
   if (!report.ok) {
     return {
@@ -98,7 +103,11 @@ export async function reviewExam(input: {
     ...report.required.map((item) => item.explanation),
     algebraPassed ? "The final assignment matches the stored value." : "The final assignment does not match.",
   ].join(" ");
-  const secrets = [exam.reference, ...exam.required];
+  const secrets = [
+    exam.reference,
+    ...exam.required,
+    ...(exam.exercises ?? []).map((item) => item.reference),
+  ];
   if (!input.gradeWithModel) {
     if (!algebraPassed) {
       return {
@@ -187,6 +196,104 @@ export async function reviewExam(input: {
   };
 }
 
+async function reviewWorkbook(input: {
+  brief: ProjectProposal;
+  tasks?: { index: number; answer: string }[];
+  gradeWithModel: boolean;
+}): Promise<ExamReview> {
+  const exercises = input.brief.exam?.exercises ?? [];
+  const answers = input.tasks ?? [];
+  const rows: { index: number; passed: boolean; operational: boolean; note: string }[] = [];
+  const written: { index: number; ask: string; answer: string }[] = [];
+  for (let index = 0; index < exercises.length; index += 1) {
+    const exercise = exercises[index];
+    const answer = answers.find((item) => item.index === index)?.answer ?? "";
+    if (!exercise || exercise.kind === "theory") {
+      if (!answer.trim()) rows.push({ index, passed: false, operational: false, note: "The written answer is blank." });
+      else if (!input.gradeWithModel) rows.push({ index, passed: false, operational: true, note: "The written answer was not graded." });
+      else {
+        written.push({ index, ask: exercise?.ask ?? "", answer });
+        rows.push({ index, passed: false, operational: true, note: "The written answer was not graded." });
+      }
+      continue;
+    }
+    const checked = await checkCalculation(exercise.target, exercise.reference, answer);
+    rows.push({ index, ...checked });
+  }
+  if (written.length > 0) {
+    try {
+      const judged = await gradeWrittenAnswers({ items: written });
+      for (const item of written) {
+        const row = rows.find((entry) => entry.index === item.index);
+        const verdict = judged.find((entry) => entry.index === item.index);
+        if (!row) continue;
+        if (!verdict) continue;
+        row.passed = verdict.passed;
+        row.operational = false;
+        row.note = verdict.note;
+      }
+    } catch {
+      // The placeholder rows stay operational. A failed written review is not a wrong answer.
+    }
+  }
+  const score = taskScore(rows);
+  const notes = rows.map((row) => ({ line: row.index + 1, text: row.note }));
+  if (!score.complete) {
+    return {
+      objective: [criterion("not_run", `${score.grade} tasks were checked. A written review did not finish.`, true)],
+      reasoning: [],
+      questions: [],
+      label: "operational_failure",
+      nextAction: "Submit again. A task that was not graded is not marked wrong.",
+      operational: { message: "A written answer was not graded. That is not evidence the answer is wrong." },
+      grade: score.grade,
+      passed: null,
+      notes,
+    };
+  }
+  return {
+    objective: [criterion(score.passed ? "passed" : "failed", `${score.grade} tasks match.`, false)],
+    reasoning: [],
+    questions: [],
+    label: score.passed ? "passed" : "failed",
+    nextAction: score.passed
+      ? `${score.grade} passes the exam.`
+      : "Correct the tasks that do not match, then submit again. Seven out of ten passes the exam.",
+    operational: null,
+    grade: score.grade,
+    passed: score.passed,
+    notes,
+  };
+}
+
+async function checkCalculation(
+  target: string,
+  reference: string,
+  answer: string,
+): Promise<{ passed: boolean; operational: boolean; note: string }> {
+  const parsed = parseDerivation(answer);
+  if (parsed.error) return { passed: false, operational: false, note: parsed.error };
+  const steps = parsed.steps.filter((step) => step.error === null && !step.declaration);
+  if (steps.length === 0) return { passed: false, operational: false, note: "Write a calculation to run." };
+  const report = await checkDerivation({
+    steps: steps.map((step) => ({ line: step.line, name: step.name, expr: step.expr })),
+    target,
+    reference,
+    required: [],
+    imports: parsed.imports,
+    checks: [{ name: target, expr: reference }],
+  });
+  if (!report.ok) {
+    return { passed: false, operational: true, note: report.error ?? "The check did not finish." };
+  }
+  const passed =
+    report.targetMatches &&
+    report.steps.every((step) => step.status === "passed") &&
+    report.required.every((item) => item.status === "passed");
+  const missed = report.required.find((item) => item.status === "failed")?.explanation;
+  return { passed, operational: false, note: passed ? "Matches." : missed || `${target} does not match.` };
+}
+
 export type ExamPreview = {
   error: string | null;
   operational: string | null;
@@ -198,10 +305,26 @@ export type ExamPreview = {
 };
 
 /** SymPy results for the editor. Nothing is stored and the expected answer is not returned. */
-export async function previewExam(brief: ProjectProposal, deliverable: string): Promise<ExamPreview> {
+export async function previewExam(brief: ProjectProposal, deliverable: string, exerciseIndex?: number): Promise<ExamPreview> {
   const exam = brief.exam;
-  const target = exam?.target ?? "";
-  const requiredTotal = exam?.required.length ?? 0;
+  const selected = exerciseIndex == null ? null : exam?.exercises?.[exerciseIndex];
+  if (selected?.kind === "theory") {
+    return {
+      error: "This task is a written answer. It is graded when you submit the exam.",
+      operational: null,
+      target: "",
+      summary: "This task is a written answer. It is graded when you submit the exam.",
+      steps: [],
+      requiredFound: 0,
+      requiredTotal: 0,
+    };
+  }
+  const target = selected?.target || exam?.target || "";
+  const calculations =
+    selected?.kind === "calculation"
+      ? [selected]
+      : (exam?.exercises ?? []).filter((item) => item.kind === "calculation" && item.target && item.reference);
+  const requiredTotal = calculations.length > 0 ? calculations.length : (exam?.required.length ?? 0);
   const parsed = parseDerivation(deliverable);
   if (parsed.error) {
     return { error: parsed.error, operational: null, target, summary: parsed.error, steps: [], requiredFound: 0, requiredTotal };
@@ -211,9 +334,10 @@ export async function previewExam(brief: ProjectProposal, deliverable: string): 
     ? await checkDerivation({
         steps: runnable.map((step) => ({ line: step.line, name: step.name, expr: step.expr })),
         target,
-        reference: exam?.reference ?? "",
-        required: exam?.required ?? [],
+        reference: selected?.reference || exam?.reference || "",
+        required: calculations.length > 0 ? [] : (exam?.required ?? []),
         imports: parsed.imports,
+        checks: calculations.map((item) => ({ name: item.target, expr: item.reference })),
       })
     : null;
   if (report && !report.ok && report.steps.length === 0) {
@@ -227,7 +351,11 @@ export async function previewExam(brief: ProjectProposal, deliverable: string): 
       requiredTotal,
     };
   }
-  const secrets = [exam?.reference ?? "", ...(exam?.required ?? [])];
+  const secrets = [
+    exam?.reference ?? "",
+    ...(exam?.required ?? []),
+    ...(exam?.exercises ?? []).map((item) => item.reference),
+  ];
   let cursor = 0;
   const steps = parsed.steps.map((step) => {
     if (step.declaration) {
@@ -264,17 +392,20 @@ export async function previewExam(brief: ProjectProposal, deliverable: string): 
   const requiredFound = report?.required.filter((item) => item.status === "passed").length ?? 0;
   const ran = steps.filter((step) => step.status === "passed" && step.value).length;
   const ranText = `Ran ${ran} ${ran === 1 ? "calculation" : "calculations"}.`;
+  const missed = (report?.required ?? []).filter((item) => item.status === "failed").map((item) => item.explanation);
   const summary = !report
     ? (steps[0]?.explanation ?? "Write a calculation to run.")
     : ran === 0
       ? (steps[0]?.explanation ?? "Write a calculation to run.")
-      : targetStep?.status === "failed"
-        ? `${ranText} ${targetStep.explanation}`
-        : !final
-          ? `${ranText} ${target} was not assigned.`
-          : report.targetMatches
-            ? `${ranText} ${target} = ${final.value}.`
-            : `${ranText} ${target} = ${final.value}. This does not match the exam.`;
+      : missed.length > 0
+        ? `${ranText} ${missed.join(" ")}`
+        : targetStep?.status === "failed"
+          ? `${ranText} ${targetStep.explanation}`
+          : !final
+            ? `${ranText} ${target} was not assigned.`
+            : report.targetMatches
+              ? `${ranText} ${target} = ${final.value}.`
+              : `${ranText} ${target} = ${final.value}. This does not match the exam.`;
   return {
     error: null,
     operational: report?.error ?? null,

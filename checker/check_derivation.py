@@ -46,9 +46,11 @@ def namespace() -> dict:
 
 
 ALLOWED = namespace()
+ALLOWED["True"] = True
+ALLOWED["False"] = False
 CONSTANTS = {name for name, value in ALLOWED.items() if not callable(value)}
 TRANSFORMS = standard_transformations + (convert_xor,)
-SAFE = re.compile(r"^[A-Za-z0-9_+\-*/^().,\s<>\[\].]+$")
+SAFE = re.compile(r"^[A-Za-z0-9_+\-*/^().,\s<>\[\].=]+$")
 
 
 def empty(error: str) -> dict:
@@ -56,7 +58,7 @@ def empty(error: str) -> dict:
 
 
 def parse_safe(expr: str, symbols: dict, allowed: dict, evaluate: bool = False):
-    if not isinstance(expr, str) or len(expr) > 2000 or "__" in expr or "=" in expr:
+    if not isinstance(expr, str) or len(expr) > 2000 or "__" in expr:
         raise ValueError("rejected")
     if not SAFE.fullmatch(expr):
         raise ValueError("rejected")
@@ -120,8 +122,11 @@ def called_names(expr: str) -> set[str]:
 
 def local_for(expr: str, values: dict, allowed: dict, forced: set[str]) -> dict:
     called = called_names(expr)
+    keywords = set(re.findall(r"\b([A-Za-z][A-Za-z0-9_]*)\s*=", expr))
     local = {}
     for name in names_in(expr):
+        if name in keywords:
+            continue
         if name in values:
             local[name] = values[name]
             continue
@@ -129,6 +134,19 @@ def local_for(expr: str, values: dict, allowed: dict, forced: set[str]) -> dict:
             continue
         local[name] = Symbol(name)
     return local
+
+
+def present(value):
+    if isinstance(value, dict):
+        return {key: present(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [present(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(present(item) for item in value)
+    try:
+        return simplify(value)
+    except Exception:
+        return value
 
 
 def is_matrix(value) -> bool:
@@ -204,12 +222,12 @@ def run_steps(steps: list, allowed: dict, forced: set[str]) -> tuple[list, list,
         except Exception:
             pass
         try:
-            value = simplify(parse_safe(expr, local_for(expr, values, allowed, forced), allowed, evaluate=True))
+            value = present(parse_safe(expr, local_for(expr, values, allowed, forced), allowed, evaluate=True))
         except TypeError as exc:
             error = failure_text(expr, values, failed, allowed, exc)
         except Exception:
             try:
-                value = simplify(parse_safe(expr, local_for(expr, values, allowed, forced), allowed, evaluate=False))
+                value = present(parse_safe(expr, local_for(expr, values, allowed, forced), allowed, evaluate=False))
             except Exception as exc:
                 error = failure_text(expr, values, failed, allowed, exc)
         if error is not None or value is None:
@@ -269,6 +287,33 @@ def imported_names(payload: dict) -> tuple[dict, set[str], list[str]]:
     return allowed, forced, unknown
 
 
+def named_checks(payload: dict, allowed: dict, forced: set[str], values: dict) -> list[dict] | None:
+    raw = payload.get("checks")
+    if not isinstance(raw, list) or not raw:
+        return []
+    rows = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return None
+        name = item.get("name") if isinstance(item.get("name"), str) else ""
+        expr = item.get("expr") if isinstance(item.get("expr"), str) else ""
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name) or not expr.strip():
+            return None
+        try:
+            parsed = parse_safe(expr, local_for(expr, values, allowed, forced), allowed, evaluate=True)
+        except Exception:
+            return None
+        matched = name in values and same(values[name], parsed)
+        if name not in values:
+            explanation = f"{name} was not assigned."
+        elif matched:
+            explanation = f"{name} matches."
+        else:
+            explanation = f"{name} does not match."
+        rows.append({"status": "passed" if matched else "failed", "explanation": explanation})
+    return rows
+
+
 def check(payload: dict) -> dict:
     reference = payload.get("reference") if isinstance(payload.get("reference"), str) else ""
     required = payload.get("required") if isinstance(payload.get("required"), list) else []
@@ -283,6 +328,25 @@ def check(payload: dict) -> dict:
             "targetMatches": False,
             "steps": step_rows,
             "required": [],
+            "unknownImports": unknown,
+        }
+    named = named_checks(payload, allowed, forced, values)
+    if named is None:
+        return {
+            "ok": True,
+            "error": "The stored reference could not be checked.",
+            "targetMatches": False,
+            "steps": step_rows,
+            "required": [],
+            "unknownImports": unknown,
+        }
+    if named:
+        return {
+            "ok": True,
+            "error": None,
+            "targetMatches": all(row["status"] == "passed" for row in named),
+            "steps": step_rows,
+            "required": named,
             "unknownImports": unknown,
         }
     try:
@@ -319,11 +383,10 @@ def check(payload: dict) -> dict:
                 else "A required intermediate form does not appear.",
             }
         )
-    target_matches = target in values and same(values[target], reference_expr)
     return {
         "ok": True,
         "error": None,
-        "targetMatches": target_matches,
+        "targetMatches": target in values and same(values[target], reference_expr),
         "steps": step_rows,
         "required": required_rows,
         "unknownImports": unknown,

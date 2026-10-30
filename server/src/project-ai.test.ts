@@ -1,29 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { examCoversTopics, examInputsArePresent, expressionIsClosed } from "./project-ai.js";
+import { examInputsArePresent, expressionIsClosed, taskScore, workbookShape } from "./project-ai.js";
 
-const topics = [
-  "State Extrapolation Equation",
-  "Covariance Extrapolation Equation",
-  "Measurement Equation",
+const checks = [
+  { ask: "The distance is 12 m and the time is 3 s. Assign `speed`.", given: ["distance = 12", "time = 3"], target: "speed", reference: "distance/time", kind: "calculation" },
+  { ask: "The speed stays constant for 5 s more. Assign `extra_distance`.", given: ["extra_time = 5"], target: "extra_distance", reference: "speed*extra_time", kind: "calculation" },
+  { ask: "Which repeated measurement would show the speed was not constant?", given: [], target: "", reference: "", kind: "theory" },
 ];
 
+describe("task score", () => {
+  it("counts matching tasks and passes at seven out of ten", () => {
+    const row = (passed: boolean) => ({ passed, operational: false as const });
+    expect(taskScore([row(true), row(false), row(true)])).toEqual({ grade: "2/3", passed: false, complete: true });
+    expect(taskScore([...Array(9).fill(row(true)), row(false)])).toEqual({ grade: "9/10", passed: true, complete: true });
+    expect(taskScore([...Array(6).fill(row(true)), ...Array(4).fill(row(false))])).toEqual({
+      grade: "6/10",
+      passed: false,
+      complete: true,
+    });
+    expect(taskScore([
+      { passed: true, operational: false },
+      { passed: false, operational: true },
+    ]).complete).toBe(false);
+    expect(taskScore([row(true), row(true)]).passed).toBe(true);
+  });
+});
+
 describe("exam coverage", () => {
-  it("rejects an exam that uses one equation from a longer section", () => {
-    expect(examCoversTopics("Differentiate the variance and solve for K.", 1, topics)).toBe(false);
+  it("rejects one long scenario and a single formula", () => {
+    expect(workbookShape({ exercises: [] })).toBe(false);
+    expect(workbookShape({ exercises: checks.slice(0, 1) })).toBe(false);
     expect(
-      examCoversTopics(
-        "Use the State Extrapolation Equation, the Covariance Extrapolation Equation, and the Measurement Equation.",
-        2,
-        topics,
-      ),
+      workbookShape({
+        exercises: [
+          {
+            ask: "Explain the physical floor. Explain the mathematical model. Explain the measurements. Propose another observation. Describe the evidence against the model.",
+            given: ["length = 8"],
+            target: "volume",
+            reference: "length*width*height",
+            kind: "calculation",
+          },
+          ...checks,
+        ],
+      }),
     ).toBe(false);
   });
 
-  it("accepts one scenario that names every topic and checks each step", () => {
-    const prompt = topics.join(", ");
-    expect(examCoversTopics(prompt, topics.length, topics, 2)).toBe(true);
-    expect(examCoversTopics(prompt, topics.length, topics, 0)).toBe(false);
-    expect(examCoversTopics("Any single derivation", 1, [])).toBe(true);
+  it("accepts a short workbook of separate checks", () => {
+    expect(workbookShape({ exercises: checks })).toBe(true);
+    expect(workbookShape({ exercises: checks.map((item) => ({ ...item, kind: "theory", target: "", reference: "" })) })).toBe(false);
   });
 
   it("keeps a numeric answer only when the exam shows the inputs", () => {
