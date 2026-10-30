@@ -13,7 +13,10 @@ export function AppShell() {
             Island
           </NavLink>
           <NavLink to="/library">Library</NavLink>
-          <NavLink to="/projects">Projects</NavLink>
+          <NavLink to="/articles">Articles</NavLink>
+          <NavLink to="/courses">Courses</NavLink>
+          <NavLink to="/workshop">Workshop</NavLink>
+          <NavLink to="/projects">Exams</NavLink>
           <NavLink to="/settings">Settings</NavLink>
         </nav>
       </header>

@@ -10,6 +10,13 @@ import { ReviewPage } from "./pages/ReviewPage";
 import { ReadPage } from "./pages/ReadPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { ArticlesPage } from "./pages/ArticlesPage";
+import { ArticlePage } from "./pages/ArticlePage";
+import { ArticleReadPage } from "./pages/ArticleReadPage";
+import { CoursesPage } from "./pages/CoursesPage";
+import { CoursePage } from "./pages/CoursePage";
+import { WorkshopPage } from "./pages/WorkshopPage";
+import { WorkshopBoardPage } from "./pages/WorkshopBoardPage";
 import "./styles.css";
 
 const router = createBrowserRouter([
@@ -25,6 +32,13 @@ const router = createBrowserRouter([
       { path: "review/:chapterId", element: <ReviewPage /> },
       { path: "settings", element: <SettingsPage /> },
       { path: "projects", element: <ProjectsPage /> },
+      { path: "articles", element: <ArticlesPage /> },
+      { path: "articles/:id", element: <ArticlePage /> },
+      { path: "articles/:id/read", element: <ArticleReadPage /> },
+      { path: "courses", element: <CoursesPage /> },
+      { path: "courses/:id", element: <CoursePage /> },
+      { path: "workshop", element: <WorkshopPage /> },
+      { path: "workshop/:id", element: <WorkshopBoardPage /> },
     ],
   },
 ]);
