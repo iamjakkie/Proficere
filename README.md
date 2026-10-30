@@ -52,12 +52,16 @@ Never put the key in frontend code, backups, or git.
 1. Load the first library with `npm run db:seed` (navigation, estimation, vision, fusion), or add a book by catalog search, by selecting its PDF, or with the labelled Navigation Notes fixture.
 2. Confirm the edition. If Open Library has no contents list, select the PDF on the add-book page or on the book page. With consent, the opening pages go to OpenRouter. The title and chapters come from the PDF bookmarks and those pages. A title already saved from the catalog stays. You edit the chapter preview and save it; chapters are not stored before that confirmation. A pasted contents list remains under **Paste a contents list instead**.
 3. Select the chapters that belong in the plan.
-4. Log 50% or complete in two clicks. Undo restores the previous reading state. Reaching the next part of a book asks for an exam on the part you just finished.
+4. Log 50% or complete in two clicks. Undo restores the previous reading state. Reaching the next chapter asks for an exam on the chapter you just finished. Skip leaves that exam unfinished and lets you continue.
 5. In Settings, point the PDF library at the folder of your books. Selecting a PDF copies it into that folder and attaches it when the folder is set. Open PDF reads that file in the app and saves progress from the furthest page you open. When a chapter knows its PDF pages, only that chapter moves; otherwise the book tracks how far into the file you have gone. After a chapter is completed, generate a review pack (consent required). The app reads that chapter from the PDF instead of using the title alone.
 6. Inspect passages, edit, reject, or report a poor item, answer the quiz (scored on the server), and note the next due date (1 / 3 / 7 / 14 days, or 1 day after a weak result).
-7. Open Projects for an exam grounded in the chapters you read. The chapter list stays closed until you open it. A plane problem draws the points from the exam data. Run checks the calculation with SymPy. Submit sends it for a grade after you consent.
+7. Open Projects for an exam grounded in the chapters you read. A new exam is one workbook of separate tasks, from a few items up to ten. Each calculation has its own script and Run. A written question has a text box. Submit at the bottom grades the exam as a count, such as 9/10. Seven out of ten passes. The chapter list stays closed until you open it. A plane problem draws the points from the exam data. Submit sends written answers for a grade after you consent.
 8. Each book is one voxel tree on a still, slightly rounded patch of earth. Chapter progress, weighted by page span when pages are known, sets how tall that tree grows. A later grouping can set `identifiers.treeGroup` to change the tree type.
-9. Export JSON backup from Settings. `npm run db:backup` also writes a file under `data/`.
+9. Export JSON backup from Settings. `npm run db:backup` writes `data/backup-<timestamp>.json`. That dump includes books, chapters, progress, reviews, rewards, exam projects, articles, courses, workshop boards, and exercise suggestions. Restoring replaces those tables. Book and chapter rows are never dropped by a schema update.
+10. Articles are readings that are not books. Attach a PDF from the library folder, keep a short note, and read it in the app. Each article is a lantern on the island, not a tree, and it does not open an exam.
+11. Courses are a separate shelf. Paste a URL and title. Optionally paste a lesson list, or ask the app to read headings from a public page, then confirm the preview before lessons are stored. Open launches the real site in a new tab. Mark a lesson Done or Still here when you come back. Udemy and Coursera are not embedded and do not auto-import. A course is a stone on the island. The island overlay shows the course you can resume.
+12. Workshop is a kanban of projects you define, with columns TODO, In progress, Test, and Done. It is not the exam workbook at Projects. Planning a project can call OpenRouter after the same kind of consent used elsewhere, and only when you press Plan. Without a key, add and move cards yourself. Dropping a card on Done plays a short shine.
+13. Exercise search looks for public university-style PDF links related to chapters and lessons you have finished. It runs only while the server is running, about once a day after you opt in, and when you press Search now. The button shows the titles that will be sent. Set `EXERCISE_SEARCH_ENDPOINT` and `EXERCISE_SEARCH_API_KEY` in `.env`. With no key, Search now explains that and does not invent results. Accepting a suggestion adds a workbook on the article shelf. It is not attached as a book and the file is not downloaded. Rejecting removes it from the waiting list. Nothing searches while the Mac server is stopped.
 
 ## Calculations
 
@@ -71,7 +75,7 @@ SQLite lives at `data/progress-island.db` by default (gitignored). Schema migrat
 
 ## PDF limits (POC)
 
-Selecting a PDF accepts a file up to 150 MB. Bookmarks and the first opening pages supply the title and chapter list. The in-app reader opens an attached file one page at a time, up to 800 pages.
+Selecting a PDF has no size cap. Bookmarks and the first opening pages supply the title and chapter list. The in-app reader opens an attached file one page at a time. A chapter search scans up to 800 pages.
 
 A PDF library folder (`LIBRARY_PATH` in `.env`, or Settings) is where that file is kept. Review generation still reads only the matching chapter, up to 40 PDF pages, and only from text-based PDFs. A scanned PDF can be viewed. Its pages have no text to extract, and OCR is out of scope.
 
@@ -81,7 +85,7 @@ A PDF library folder (`LIBRARY_PATH` in `.env`, or Settings) is where that file 
 npm test
 ```
 
-Covers progress math, review scheduling, quote grounding, outline extraction from the fixture, reward idempotency, quiz scoring, backup restore, PDF chapter choice, the SymPy derivation checker, and disabled AI without a key.
+Covers progress math, review scheduling, quote grounding, outline extraction from the fixture, reward idempotency, quiz scoring, backup restore (including articles, courses, workshop cards, and exercise suggestions), PDF chapter choice, course lesson progress, the SymPy derivation checker, and disabled AI without a key.
 
 ## Architecture
 
@@ -97,7 +101,9 @@ One repo, one backend process, localhost by default. Do not expose this unauthen
 - Catalog contents exist only when Open Library has a table of contents for the selected edition. Otherwise select the PDF. A scanned file cannot supply a title or chapter list.
 - Chapter text is found by searching the PDF for the confirmed chapter title. A title that does not appear in the file cannot be grounded.
 - OpenRouter review quality depends on the model you choose; grounding checks reject quotes that are not in the source, not factual correctness.
-- No background reminders while the Mac server is stopped.
+- No background reminders, and no exercise search, while the Mac server is stopped.
+- Exercise search only calls the endpoint you configure. It does not sign in to a publisher, bypass a paywall, or download files into the book library.
+- Course sites that require a login, including Udemy and Coursera, do not yield a lesson list. Paste the titles yourself.
 - No native mobile app or home-screen widget.
 - Reduced-motion / missing WebGL uses a static island fallback; tracking remains usable.
 
