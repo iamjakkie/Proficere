@@ -87,6 +87,7 @@ import {
   saveReview,
   updateDraft,
 } from "./project-store.js";
+import { fieldResources } from "./field.js";
 import {
   addCategory,
   chapterText,
@@ -338,6 +339,7 @@ export function createApp(db: Db): Express {
       ai: getAiStatus(),
       markers: islandMarkers(db),
       activeCourse: activeCourse(db),
+      field: fieldResources(db),
     });
   });
 

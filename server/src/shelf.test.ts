@@ -7,12 +7,15 @@ import { FIXTURE_SOURCE } from "@progress-island/shared";
 import { createApp } from "./app.js";
 import { openDatabase } from "./db.js";
 import { maybeSearch } from "./exercise-search.js";
+import { fieldResources } from "./field.js";
 import {
   confirmLessons,
   createArticle,
   createCourse,
   createWorkshopCard,
   createWorkshopProject,
+  setArticleCategory,
+  setCourseCategory,
   setExerciseSearchLastAt,
   setExerciseSearchOptIn,
   setLessonDone,
@@ -29,6 +32,7 @@ import {
   listChapters,
   listRewards,
   localOrEmptyOutline,
+  removeCategory,
   restoreBackup,
   updateChapter,
 } from "./store.js";
@@ -249,5 +253,55 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     const state = await request(createApp(h.db)).get("/api/exercise-search");
     expect(state.body.suggestions[0].url).toBe("https://web.mit.edu/hw.pdf");
     expect(state.body.suggestions[0].sourceHost).toBe("web.mit.edu");
+  });
+
+  it("builds the home field from books, articles, and courses without touching other shelves", async () => {
+    const h = tempDb();
+    handles.push(h);
+    const book = createBook(h.db, { title: "Field Book", author: "Ada" });
+    const document = insertSource(h.db, {
+      bookId: book.id,
+      provenanceType: "pasted",
+      provenanceLabel: "Extracted from pasted text",
+      text: FIXTURE_SOURCE,
+    });
+    confirmChapters(h.db, book.id, document.id, localOrEmptyOutline(FIXTURE_SOURCE), false);
+    const chapters = listChapters(h.db, book.id);
+    expect(chapters.length).toBeGreaterThan(1);
+    updateChapter(h.db, chapters[0]!.id, { progressPercent: 100 });
+    updateChapter(h.db, chapters[1]!.id, { progressPercent: 40 });
+    const article = createArticle(h.db, { title: "Field note" });
+    const app = createApp(h.db);
+    const assigned = await request(app)
+      .put(`/api/articles/${article.id}/category`)
+      .send({ category: "navigation" })
+      .expect(200);
+    expect(assigned.body.article.category).toBe("navigation");
+    const course = createCourse(h.db, { title: "Field course", url: "https://example.edu/field" });
+    const lessons = confirmLessons(h.db, course.id, ["One", "Two"]);
+    setLessonDone(h.db, course.id, lessons[0]!.id, true);
+    setCourseCategory(h.db, course.id, "estimation");
+    createWorkshopProject(h.db, { title: "Not on the field" });
+
+    const field = fieldResources(h.db);
+    expect(field.map((item) => item.kind).sort()).toEqual(["article", "book", "course"]);
+    const bookRow = field.find((item) => item.id === book.id);
+    expect(bookRow?.segments[0]).toBe(1);
+    expect(bookRow?.segments[1]).toBe(0.4);
+    expect(bookRow?.href).toBe(`/books/${book.id}`);
+    expect(field.find((item) => item.id === article.id)).toMatchObject({
+      kind: "article",
+      category: "navigation",
+      segments: [0],
+      href: `/articles/${article.id}`,
+    });
+    expect(field.find((item) => item.id === course.id)?.segments).toEqual([1, 0]);
+
+    const dashboard = await request(app).get("/api/dashboard").expect(200);
+    expect(dashboard.body.field).toHaveLength(3);
+
+    removeCategory(h.db, "navigation");
+    expect(fieldResources(h.db).find((item) => item.id === article.id)?.category).toBeNull();
+    await request(app).put(`/api/articles/${article.id}/category`).send({ category: "missing" }).expect(400);
   });
 });

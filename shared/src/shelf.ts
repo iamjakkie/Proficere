@@ -21,6 +21,8 @@ export const ArticleSchema = z.object({
   pageCount: z.number().int().nullable(),
   progressPercent: z.number().int().min(0).max(100),
   status: ArticleStatusSchema,
+  /** Same category id a book stores in identifiers.category. Null until assigned. */
+  category: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -32,6 +34,8 @@ export const CourseSchema = z.object({
   url: z.string(),
   note: z.string().nullable(),
   lessonsConfirmed: z.boolean(),
+  /** Same category id a book stores in identifiers.category. Null until assigned. */
+  category: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -297,6 +301,58 @@ export function searchIsDue(lastAt: string | null, now = Date.now()): boolean {
 export function lessonProgress(done: number, total: number): number {
   if (total <= 0) return 0;
   return Math.min(1, Math.max(0, done / total));
+}
+
+export const fieldKinds = ["book", "article", "course"] as const;
+export const FieldKindSchema = z.enum(fieldKinds);
+export type FieldKind = z.infer<typeof FieldKindSchema>;
+
+export const FieldResourceSchema = z.object({
+  id: z.string().uuid(),
+  kind: FieldKindSchema,
+  title: z.string(),
+  category: z.string().nullable(),
+  href: z.string(),
+  /** 0–1 per chapter or lesson. An article is one segment. */
+  segments: z.array(z.number().min(0).max(1)),
+});
+export type FieldResource = z.infer<typeof FieldResourceSchema>;
+
+export function clampUnit(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+/** One segment per chapter. A book with no outline yet is one segment from its growth. */
+export function bookSegments(chapters: { progressPercent: number }[], growth: number): number[] {
+  if (!chapters.length) return [clampUnit(growth)];
+  return chapters.map((chapter) => clampUnit(chapter.progressPercent / 100));
+}
+
+/** One segment per lesson. No lessons means no segments yet. */
+export function courseSegments(lessons: { done: boolean }[]): number[] {
+  return lessons.map((lesson) => (lesson.done ? 1 : 0));
+}
+
+export function articleSegments(progressPercent: number): number[] {
+  return [clampUnit(progressPercent / 100)];
+}
+
+/** Whole segments only. A chapter or lesson still in progress is not finished. */
+export function finishedSegmentCount(segments: number[]): number {
+  return segments.filter((fill) => fill >= 1).length;
+}
+
+/** Share of segments that are done, including a partial segment. Rounded for the printed percent. */
+export function sharePercent(segments: number[]): number {
+  if (!segments.length) return 0;
+  const done = segments.reduce((sum, fill) => sum + fill, 0);
+  return Math.round((done / segments.length) * 100);
+}
+
+export function fieldFigure(kind: FieldKind, segments: number[]): string {
+  if (kind === "article") return `${Math.round((segments[0] ?? 0) * 100)}%`;
+  return `${finishedSegmentCount(segments)}/${segments.length}`;
 }
 
 export const EXERCISE_SEARCH_UNCONFIGURED =

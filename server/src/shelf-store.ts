@@ -18,7 +18,7 @@ import {
 } from "@progress-island/shared";
 import type { Db } from "./db.js";
 import { describeLibrary, resolveInsideLibrary } from "./library.js";
-import { getSetting, nowIso, setSetting } from "./store.js";
+import { getSetting, listCategories, nowIso, setSetting } from "./store.js";
 
 const OPT_IN_KEY = "exercise_search_opt_in";
 const LAST_SEARCH_KEY = "exercise_search_last_at";
@@ -42,6 +42,7 @@ function mapArticle(row: Record<string, unknown>): Article {
     pageCount: row.page_count == null ? null : Number(row.page_count),
     progressPercent: Number(row.progress_percent) || 0,
     status: (row.status as ArticleStatus) ?? "not_started",
+    category: cleanAssignedCategory(row.category),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -54,9 +55,16 @@ function mapCourse(row: Record<string, unknown>): Course {
     url: String(row.url),
     note: (row.note as string | null) ?? null,
     lessonsConfirmed: Boolean(row.lessons_confirmed),
+    category: cleanAssignedCategory(row.category),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
+}
+
+function cleanAssignedCategory(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
 
 function mapLesson(row: Record<string, unknown>): CourseLesson {
@@ -226,6 +234,13 @@ export function recordArticleReading(db: Db, id: string, page: number, pageCount
   return getArticle(db, id);
 }
 
+export function setArticleCategory(db: Db, id: string, category: string | null): Article {
+  getArticle(db, id);
+  const value = requireKnownCategory(db, category);
+  db.prepare("UPDATE articles SET category = ?, updated_at = ? WHERE id = ?").run(value, nowIso(), id);
+  return getArticle(db, id);
+}
+
 export function listCourses(db: Db): Course[] {
   return (db.prepare("SELECT * FROM courses ORDER BY updated_at DESC").all() as Record<string, unknown>[]).map(
     mapCourse,
@@ -236,6 +251,21 @@ export function getCourse(db: Db, id: string): Course {
   const row = db.prepare("SELECT * FROM courses WHERE id = ?").get(id) as Record<string, unknown> | undefined;
   if (!row) throw new AppError("Course not found.", "not_found", 404);
   return mapCourse(row);
+}
+
+export function setCourseCategory(db: Db, id: string, category: string | null): Course {
+  getCourse(db, id);
+  const value = requireKnownCategory(db, category);
+  db.prepare("UPDATE courses SET category = ?, updated_at = ? WHERE id = ?").run(value, nowIso(), id);
+  return getCourse(db, id);
+}
+
+function requireKnownCategory(db: Db, category: string | null): string | null {
+  const value = category?.trim() || null;
+  if (value && !listCategories(db).some((item) => item.id === value)) {
+    throw new AppError("Unknown category.", "category", 400);
+  }
+  return value;
 }
 
 export function listLessons(db: Db, courseId: string): CourseLesson[] {

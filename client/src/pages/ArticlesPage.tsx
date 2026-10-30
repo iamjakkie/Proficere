@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import type { Article, ExerciseSuggestion } from "@progress-island/shared";
+import type { Article, BookCategory, ExerciseSuggestion } from "@progress-island/shared";
 import { api } from "../api";
+import { CategorySelect } from "../CategorySelect";
 
 type SearchState = {
   configured: boolean;
@@ -23,6 +24,7 @@ function percentLabel(article: Article): string {
 
 export function ArticlesPage() {
   const [articles, setArticles] = useState<Article[]>([]);
+  const [categories, setCategories] = useState<BookCategory[]>([]);
   const [title, setTitle] = useState("");
   const [search, setSearch] = useState<SearchState | null>(null);
   const [consent, setConsent] = useState(false);
@@ -33,6 +35,9 @@ export function ArticlesPage() {
   function load() {
     api<{ articles: Article[] }>("/api/articles")
       .then((data) => setArticles(data.articles))
+      .catch((err: Error) => setError(err.message));
+    api<{ categories: BookCategory[] }>("/api/categories")
+      .then((data) => setCategories(data.categories))
       .catch((err: Error) => setError(err.message));
     api<SearchState>("/api/exercise-search")
       .then(setSearch)
@@ -54,6 +59,15 @@ export function ArticlesPage() {
     });
     setTitle("");
     setArticles((current) => [data.article, ...current]);
+  }
+
+  async function assignCategory(article: Article, category: string | null) {
+    setError(null);
+    const data = await api<{ article: Article }>(`/api/articles/${article.id}/category`, {
+      method: "PUT",
+      body: JSON.stringify({ category }),
+    });
+    setArticles((current) => current.map((item) => (item.id === article.id ? data.article : item)));
   }
 
   async function searchNow() {
@@ -95,8 +109,7 @@ export function ArticlesPage() {
       <section className="card article-shelf">
         <h1>Articles</h1>
         <p className="muted">
-          A short reading with its own lantern on the island. Articles are not books, so they do not grow a tree and they
-          do not open an exam.
+          A short reading. Articles are not books, so they do not open an exam. The category sets the bar color on Home.
         </p>
         {error && <p className="banner danger">{error}</p>}
         <form className="category-add" onSubmit={(event) => void addArticle(event)}>
@@ -117,6 +130,12 @@ export function ArticlesPage() {
             {readings.map((article) => (
               <li key={article.id}>
                 <Link to={`/articles/${article.id}`}>{article.title}</Link>
+                <CategorySelect
+                  label={`Category for ${article.title}`}
+                  categories={categories}
+                  value={article.category}
+                  onChange={(category) => void assignCategory(article, category)}
+                />
                 <span className="muted">{percentLabel(article)}</span>
               </li>
             ))}
@@ -195,6 +214,12 @@ export function ArticlesPage() {
             {workbooks.map((article) => (
               <li key={article.id}>
                 <Link to={`/articles/${article.id}`}>{article.title}</Link>
+                <CategorySelect
+                  label={`Category for ${article.title}`}
+                  categories={categories}
+                  value={article.category}
+                  onChange={(category) => void assignCategory(article, category)}
+                />
                 <span className="muted">{article.sourceHost ?? "Workbook"}</span>
               </li>
             ))}

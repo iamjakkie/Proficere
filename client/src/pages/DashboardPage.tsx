@@ -3,11 +3,12 @@ import { Link } from "react-router-dom";
 import type { BookCategory, Dashboard } from "@progress-island/shared";
 import { categoryColorCss } from "@progress-island/shared";
 import { api } from "../api";
-import { IslandView } from "../IslandView";
+import { FieldView } from "../FieldView";
 
 export function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [categories, setCategories] = useState<BookCategory[]>([]);
+  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,63 +21,42 @@ export function DashboardPage() {
   }, []);
 
   if (error && !data) return <p className="banner danger">{error}</p>;
-  if (!data) return <p>Loading island…</p>;
+  if (!data) return <p>Loading home…</p>;
 
   async function saveCategories(path: string, init: RequestInit) {
     setError(null);
     try {
-      const result = await api<{ categories: BookCategory[] }>(path, init);
-      setCategories(result.categories);
-      setData((current) =>
-        current
-          ? {
-              ...current,
-              categories: result.categories,
-              trees: current.trees.map((tree) =>
-                tree.category && result.categories.some((category) => category.id === tree.category)
-                  ? tree
-                  : { ...tree, category: null },
-              ),
-            }
-          : current,
-      );
+      await api(path, init);
+      const dashboard = await api<Dashboard>("/api/dashboard");
+      setData(dashboard);
+      setCategories(dashboard.categories);
     } catch (err) {
       setError((err as Error).message);
       throw err;
     }
   }
 
+  const resume = continueTarget(data);
+
   return (
-    <div className="island-page">
-      <IslandView trees={data.trees} categories={categories} markers={data.markers} />
-      <aside className="island-overlay stack">
-        {data.activeCourse && (
-          <div className="card course-resume">
-            <h2>Course in progress</h2>
-            <p>
-              <Link to={data.activeCourse.href}>{data.activeCourse.title}</Link>
-            </p>
-            <p className="muted">
-              {data.activeCourse.lessonCount === 0
-                ? "No lessons confirmed yet"
-                : `${data.activeCourse.doneCount} of ${data.activeCourse.lessonCount} lessons done`}
-              {data.activeCourse.others > 0 ? ` · ${data.activeCourse.others} more` : ""}
-            </p>
-            <p className="row-actions">
-              <Link className="btn primary" to={data.activeCourse.href}>
-                Resume
-              </Link>
-              <a className="btn" href={data.activeCourse.url} target="_blank" rel="noreferrer">
-                Open
-              </a>
-            </p>
-          </div>
-        )}
-        {!data.ai.configured && (
-          <div className="banner">
-            Configure OpenRouter to enable AI. Tracking still works.
-          </div>
-        )}
+    <div className="field-page">
+      <FieldView resources={data.field} categories={categories} query={query} />
+      <form className="field-find" onSubmit={(event) => event.preventDefault()}>
+        <input
+          aria-label="Find"
+          placeholder="Find"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </form>
+      {resume && (
+        <Link className="field-continue" to={resume.href}>
+          Continue {resume.title}
+        </Link>
+      )}
+      {!data.ai.configured && <p className="field-ai">Configure OpenRouter to enable AI. Tracking still works.</p>}
+      <details className="field-editor">
+        <summary>Categories</summary>
         <CategoryEditor
           categories={categories}
           error={error}
@@ -94,9 +74,17 @@ export function DashboardPage() {
           }
           onRemove={(id) => saveCategories(`/api/categories/${encodeURIComponent(id)}`, { method: "DELETE" })}
         />
-      </aside>
+      </details>
     </div>
   );
+}
+
+function continueTarget(data: Dashboard): { href: string; title: string } | null {
+  if (data.activeCourse) return { href: data.activeCourse.href, title: data.activeCourse.title };
+  if (!data.nextChapter) return null;
+  const tree = data.trees.find((item) => item.bookId === data.nextChapter?.bookId);
+  const href = tree?.hasPdf ? `/books/${data.nextChapter.bookId}/read` : `/books/${data.nextChapter.bookId}`;
+  return { href, title: data.nextChapter.title };
 }
 
 function CategoryEditor({
@@ -123,11 +111,8 @@ function CategoryEditor({
   }
 
   return (
-    <div className="card">
-      <h2>Categories</h2>
-      <p className="muted">
-        Assign a book and its tree is painted that color. Size still follows how far you have read.
-      </p>
+    <div className="stack">
+      <p className="muted">Bar color follows the category. Assign a book, article, or course and its bar uses that color.</p>
       {error && <p className="banner danger">{error}</p>}
       <ul className="category-editor">
         {categories.map((category) => (

@@ -129,7 +129,7 @@ export function LibraryPage() {
         <div className="card library-summary">
           <p>{libraryLabel}</p>
           <p className="muted">
-            Drag the handle to rank books. Set a category to move that tree onto its region of the globe.
+            Drag the handle to rank books. Set a category to color that book's bar on Home.
           </p>
           <div className="progress-bar" aria-label="Library reading progress">
             <span style={{ width: `${libraryPercent >= 1 ? Math.round(libraryPercent) : started ? 1 : 0}%` }} />

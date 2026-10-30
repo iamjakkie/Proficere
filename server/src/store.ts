@@ -1309,6 +1309,8 @@ export function removeCategory(db: Db, id: string): BookCategory[] {
     for (const book of listBooks(db)) {
       if (book.identifiers.category === id) mergeBookIdentifiers(db, book.id, { category: null });
     }
+    db.prepare("UPDATE articles SET category = NULL WHERE category = ?").run(id);
+    db.prepare("UPDATE courses SET category = NULL WHERE category = ?").run(id);
   });
   apply();
   return next;

@@ -1,13 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import type { Course } from "@progress-island/shared";
+import type { BookCategory, Course } from "@progress-island/shared";
 import { api } from "../api";
+import { CategorySelect } from "../CategorySelect";
 
 type CourseRow = Course & { lessonCount: number; doneCount: number };
 
 export function CoursesPage() {
   const navigate = useNavigate();
   const [courses, setCourses] = useState<CourseRow[]>([]);
+  const [categories, setCategories] = useState<BookCategory[]>([]);
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +18,21 @@ export function CoursesPage() {
     api<{ courses: CourseRow[] }>("/api/courses")
       .then((data) => setCourses(data.courses))
       .catch((err: Error) => setError(err.message));
+    api<{ categories: BookCategory[] }>("/api/categories")
+      .then((data) => setCategories(data.categories))
+      .catch((err: Error) => setError(err.message));
   }, []);
+
+  async function assignCategory(course: CourseRow, category: string | null) {
+    setError(null);
+    const data = await api<{ course: Course }>(`/api/courses/${course.id}/category`, {
+      method: "PUT",
+      body: JSON.stringify({ category }),
+    });
+    setCourses((current) =>
+      current.map((item) => (item.id === course.id ? { ...item, ...data.course } : item)),
+    );
+  }
 
   async function addCourse(event: FormEvent) {
     event.preventDefault();
@@ -38,7 +54,7 @@ export function CoursesPage() {
         <h1>Courses</h1>
         <p className="muted">
           Paste the course URL. Open launches the real site in a new tab. This app does not embed Udemy or Coursera, and
-          it does not read a logged-in lesson list from those sites. A course is a stone on the island, not a book tree.
+          it does not read a logged-in lesson list from those sites. The category sets the bar color on Home.
         </p>
         {error && <p className="banner danger">{error}</p>}
         <form className="stack" onSubmit={(event) => void addCourse(event)}>
@@ -67,6 +83,12 @@ export function CoursesPage() {
             {courses.map((course) => (
               <li key={course.id}>
                 <Link to={`/courses/${course.id}`}>{course.title}</Link>
+                <CategorySelect
+                  label={`Category for ${course.title}`}
+                  categories={categories}
+                  value={course.category}
+                  onChange={(category) => void assignCategory(course, category)}
+                />
                 <span className="muted">
                   {course.lessonCount === 0
                     ? "No lessons confirmed"

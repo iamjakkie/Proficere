@@ -16,6 +16,8 @@ import {
   articlePdfFile,
   attachArticlePdf,
   confirmLessons,
+  setArticleCategory,
+  setCourseCategory,
   createArticle,
   createCourse,
   createWorkshopCard,
@@ -94,6 +96,14 @@ export function registerShelfRoutes(app: Express, db: Db): void {
   );
 
   app.put(
+    "/api/articles/:id/category",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ category: z.string().min(1).max(40).nullable() }).parse(req.body);
+      res.json({ article: setArticleCategory(db, req.params.id, body.category) });
+    }),
+  );
+
+  app.put(
     "/api/articles/:id/library",
     asyncHandler(async (req, res) => {
       const body = z.object({ filename: z.string().nullable() }).parse(req.body);
@@ -168,6 +178,14 @@ export function registerShelfRoutes(app: Express, db: Db): void {
     asyncHandler(async (req, res) => {
       const course = getCourse(db, req.params.id);
       res.json({ course, lessons: listLessons(db, course.id) });
+    }),
+  );
+
+  app.put(
+    "/api/courses/:id/category",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ category: z.string().min(1).max(40).nullable() }).parse(req.body);
+      res.json({ course: setCourseCategory(db, req.params.id, body.category) });
     }),
   );
 

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  articleSegments,
+  bookSegments,
+  courseSegments,
   exerciseHitsFromJson,
+  fieldFigure,
+  finishedSegmentCount,
   isPdfLink,
   isUniversityHost,
   lessonTitlesFromHtml,
@@ -8,6 +13,7 @@ import {
   rankExerciseHits,
   searchIsDue,
   searchQueryFromTitles,
+  sharePercent,
   WorkshopPlanSchema,
 } from "./shelf.js";
 
@@ -56,6 +62,21 @@ describe("shelf helpers", () => {
     expect(searchIsDue(null, now)).toBe(true);
     expect(searchIsDue("2026-10-30T06:00:00.000Z", now)).toBe(false);
     expect(searchIsDue("2026-10-29T11:00:00.000Z", now)).toBe(true);
+  });
+
+  it("counts finished chapters and lessons, and a percent for an article", () => {
+    expect(bookSegments([], 0.4)).toEqual([0.4]);
+    const chapters = bookSegments([{ progressPercent: 100 }, { progressPercent: 50 }, { progressPercent: 0 }], 0);
+    expect(chapters).toEqual([1, 0.5, 0]);
+    expect(finishedSegmentCount(chapters)).toBe(1);
+    expect(fieldFigure("book", chapters)).toBe("1/3");
+    expect(courseSegments([{ done: true }, { done: false }])).toEqual([1, 0]);
+    expect(fieldFigure("course", courseSegments([{ done: true }, { done: false }]))).toBe("1/2");
+    expect(fieldFigure("course", [])).toBe("0/0");
+    expect(articleSegments(40)).toEqual([0.4]);
+    expect(fieldFigure("article", articleSegments(40))).toBe("40%");
+    expect(sharePercent([1, 0.5, 0, 0.4])).toBe(48);
+    expect(sharePercent([])).toBe(0);
   });
 
   it("rejects a workshop plan that is not a card list", () => {

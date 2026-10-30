@@ -288,6 +288,13 @@ CREATE TABLE exercise_suggestions (
 );
 `,
   },
+  {
+    version: 8,
+    sql: `
+ALTER TABLE articles ADD COLUMN category TEXT;
+ALTER TABLE courses ADD COLUMN category TEXT;
+`,
+  },
 ];
 
 export type Db = Database.Database;

@@ -74,7 +74,7 @@ export function ArticlePage() {
         <Link to="/articles">{article.kind === "workbook" ? "Exercise sheets" : "Articles"}</Link>
       </p>
       <section className={article.kind === "workbook" ? "card workbook-shelf" : "card article-shelf"}>
-        <p className="muted">{article.kind === "workbook" ? "Exercise sheet" : "Article"} · lantern on the island, not a book tree</p>
+        <p className="muted">{article.kind === "workbook" ? "Exercise sheet" : "Article"}</p>
         <h1>{article.title}</h1>
         {finished && <p className="banner good">Finished.</p>}
         {missingPdf && article.kind === "article" && (

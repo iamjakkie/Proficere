@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ActiveCourseSchema, IslandMarkerSchema } from "./shelf.js";
+import { ActiveCourseSchema, FieldResourceSchema, IslandMarkerSchema } from "./shelf.js";
 import { BookCategorySchema } from "./categories.js";
 
 export const provenanceTypes = [
@@ -281,5 +281,6 @@ export const DashboardSchema = z.object({
   ai: AiStatusSchema,
   markers: z.array(IslandMarkerSchema),
   activeCourse: ActiveCourseSchema.nullable(),
+  field: z.array(FieldResourceSchema),
 });
 export type Dashboard = z.infer<typeof DashboardSchema>;

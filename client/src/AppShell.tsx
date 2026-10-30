@@ -6,11 +6,11 @@ export function AppShell() {
       <header className="topbar">
         <NavLink to="/" className="brand">
           <strong>Progress Island</strong>
-          <span>Build your island. Keep what you learn.</span>
+          <span>Keep what you learn.</span>
         </NavLink>
         <nav>
           <NavLink to="/" end>
-            Island
+            Home
           </NavLink>
           <NavLink to="/library">Library</NavLink>
           <NavLink to="/articles">Articles</NavLink>

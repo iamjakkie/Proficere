@@ -2,7 +2,7 @@
   "name": "progress-island",
   "private": true,
   "version": "0.1.0",
-  "description": "AI-powered learning companion that turns reading, chapter progress, and spaced recall into a growing voxel island.",
+  "description": "AI-powered learning companion that turns reading, chapter progress, and spaced recall into a home field of progress.",
   "workspaces": [
     "shared",
     "server",
