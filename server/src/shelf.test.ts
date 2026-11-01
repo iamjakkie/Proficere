@@ -19,6 +19,7 @@ import {
   setExerciseSearchLastAt,
   setExerciseSearchOptIn,
   setLessonDone,
+  setWorkshopPriority,
   storeExerciseHits,
   updateWorkshopCard,
 } from "./shelf-store.js";
@@ -143,6 +144,14 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
       .send({ done: false })
       .expect(200);
     expect(back.body.lesson.done).toBe(false);
+    await request(app).delete(`/api/courses/${courseId}`).expect(200);
+    await request(app).get(`/api/courses/${courseId}`).expect(404);
+    const left = h.db.prepare("SELECT COUNT(*) AS n FROM course_lessons WHERE course_id = ?").get(courseId) as {
+      n: number;
+    };
+    expect(left.n).toBe(0);
+    const list = await request(app).get("/api/courses").expect(200);
+    expect(list.body.courses).toHaveLength(0);
   });
 
   it("moves a workshop card between columns", async () => {
@@ -282,10 +291,15 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     const lessons = confirmLessons(h.db, course.id, ["One", "Two"]);
     setLessonDone(h.db, course.id, lessons[0]!.id, true);
     setCourseCategory(h.db, course.id, "estimation");
-    createWorkshopProject(h.db, { title: "Not on the field" });
+    const project = createWorkshopProject(h.db, { title: "Bench", category: "navigation", priority: "top" });
+    createWorkshopCard(h.db, project.id, { title: "Wire the imu" });
+    const finished = createWorkshopCard(h.db, project.id, { title: "Log a run" });
+    updateWorkshopCard(h.db, finished.id, { column: "done" });
+    const uncategorized = createWorkshopProject(h.db, { title: "Not on the field" });
+    expect(setWorkshopPriority(h.db, uncategorized.id, "high").priority).toBe("high");
 
     const field = fieldResources(h.db);
-    expect(field.map((item) => item.kind).sort()).toEqual(["article", "book", "course"]);
+    expect(field.map((item) => item.kind).sort()).toEqual(["article", "book", "course", "workshop", "workshop"]);
     const bookRow = field.find((item) => item.id === book.id);
     expect(bookRow?.segments[0]).toBe(1);
     expect(bookRow?.segments[1]).toBe(0.4);
@@ -297,10 +311,19 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
       href: `/articles/${article.id}`,
     });
     expect(field.find((item) => item.id === course.id)?.segments).toEqual([1, 0]);
+    expect(field.find((item) => item.id === project.id)).toMatchObject({
+      kind: "workshop",
+      category: "navigation",
+      priority: "top",
+      segments: [0, 1],
+      href: `/workshop/${project.id}`,
+    });
+    expect(field.find((item) => item.id === uncategorized.id)?.category).toBeNull();
+    expect(field.find((item) => item.id === book.id)?.priority).toBe("none");
     expect(field.some((item) => item.id === sheet.id)).toBe(false);
 
     const dashboard = await request(app).get("/api/dashboard").expect(200);
-    expect(dashboard.body.field).toHaveLength(3);
+    expect(dashboard.body.field).toHaveLength(5);
 
     removeCategory(h.db, "navigation");
     expect(fieldResources(h.db).find((item) => item.id === article.id)?.category).toBeNull();

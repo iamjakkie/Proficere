@@ -89,7 +89,7 @@ export function ReadPage() {
   });
   const [pageDraft, setPageDraft] = useState(String(page));
   const [zoom, setZoom] = useState(1);
-  const [spread, setSpread] = useState(false);
+  const [spread, setSpread] = useState(true);
   const [stageBox, setStageBox] = useState({ width: 0, height: 0 });
   const [error, setError] = useState<string | null>(null);
   const [examGate, setExamGate] = useState<ExamGate | null>(null);

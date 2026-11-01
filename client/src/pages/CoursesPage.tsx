@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import type { BookCategory, Course } from "@progress-island/shared";
+import type { BookCategory, Course, Priority } from "@progress-island/shared";
+import { courseraTarget, ocwLectureNotesUrl, udemyCourseSlug } from "@progress-island/shared";
 import { api } from "../api";
 import { CategorySelect } from "../CategorySelect";
+import { PrioritySelect } from "../PrioritySelect";
 
 type CourseRow = Course & { lessonCount: number; doneCount: number };
 
@@ -34,6 +36,28 @@ export function CoursesPage() {
     );
   }
 
+  async function assignPriority(course: CourseRow, priority: Priority) {
+    setError(null);
+    const data = await api<{ course: Course }>(`/api/courses/${course.id}/priority`, {
+      method: "PUT",
+      body: JSON.stringify({ priority }),
+    });
+    setCourses((current) =>
+      current.map((item) => (item.id === course.id ? { ...item, ...data.course } : item)),
+    );
+  }
+
+  async function removeCourse(course: CourseRow) {
+    if (!window.confirm(`Delete ${course.title}? Its lessons are removed with it.`)) return;
+    setError(null);
+    try {
+      await api(`/api/courses/${course.id}`, { method: "DELETE" });
+      setCourses((current) => current.filter((item) => item.id !== course.id));
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   async function addCourse(event: FormEvent) {
     event.preventDefault();
     setError(null);
@@ -53,8 +77,11 @@ export function CoursesPage() {
       <section className="card course-shelf">
         <h1>Courses</h1>
         <p className="muted">
-          Paste the course URL. Open launches the real site in a new tab. This app does not embed Udemy or Coursera, and
-          it does not read a logged-in lesson list from those sites. The category sets the bar color on Home.
+          Paste a title and the course URL. A Udemy link loads that course&apos;s public sections. A Coursera
+          specialization loads its courses, and a Coursera course link loads its modules. An MIT OpenCourseWare link
+          loads its lecture list. Confirm the list before anything is stored. Open launches the real site in a new tab,
+          and the files stay there. The category sets the bar color on Home. Priority is a mark on that row: none, high,
+          or top.
         </p>
         {error && <p className="banner danger">{error}</p>}
         <form className="stack" onSubmit={(event) => void addCourse(event)}>
@@ -72,6 +99,18 @@ export function CoursesPage() {
               required
             />
           </label>
+          {udemyCourseSlug(url.trim()) && (
+            <p className="muted">This Udemy link will load its public sections for confirmation.</p>
+          )}
+          {courseraTarget(url.trim())?.kind === "specialization" && (
+            <p className="muted">This Coursera link will load its public course list for confirmation.</p>
+          )}
+          {courseraTarget(url.trim())?.kind === "course" && (
+            <p className="muted">This Coursera link will load its public modules for confirmation.</p>
+          )}
+          {ocwLectureNotesUrl(url.trim()) && (
+            <p className="muted">This MIT OpenCourseWare link will load its lecture list for confirmation.</p>
+          )}
           <button className="btn primary" type="submit">
             Add course
           </button>
@@ -89,11 +128,19 @@ export function CoursesPage() {
                   value={course.category}
                   onChange={(category) => void assignCategory(course, category)}
                 />
+                <PrioritySelect
+                  label={`Priority for ${course.title}`}
+                  value={course.priority}
+                  onChange={(priority) => void assignPriority(course, priority)}
+                />
                 <span className="muted">
                   {course.lessonCount === 0
                     ? "No lessons confirmed"
                     : `${course.doneCount} of ${course.lessonCount} done`}
                 </span>
+                <button className="btn ghost" type="button" onClick={() => void removeCourse(course)}>
+                  Delete
+                </button>
               </li>
             ))}
           </ul>

@@ -103,7 +103,10 @@ function CategoryEditor({
 
   return (
     <div className="stack">
-      <p className="muted">Bar color follows the category. Assign a book, article, or course and its bar uses that color.</p>
+      <p className="muted">
+        Bar color follows the category. One mark is high priority and two marks are top. A workshop project uses one
+        segment per task, filled when the task is Done.
+      </p>
       {error && <p className="banner danger">{error}</p>}
       <ul className="category-editor">
         {categories.map((category) => (

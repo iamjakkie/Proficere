@@ -17,9 +17,12 @@ import {
   attachArticlePdf,
   confirmLessons,
   setArticleCategory,
+  setArticlePriority,
   setCourseCategory,
+  setCoursePriority,
   createArticle,
   createCourse,
+  deleteCourse,
   createWorkshopCard,
   createWorkshopProject,
   getArticle,
@@ -30,6 +33,7 @@ import {
   listLessons,
   listWorkshopCards,
   listWorkshopProjects,
+  setWorkshopPriority,
   recordArticleReading,
   rejectSuggestion,
   setLessonDone,
@@ -100,6 +104,14 @@ export function registerShelfRoutes(app: Express, db: Db): void {
     asyncHandler(async (req, res) => {
       const body = z.object({ category: z.string().min(1).max(40).nullable() }).parse(req.body);
       res.json({ article: setArticleCategory(db, req.params.id, body.category) });
+    }),
+  );
+
+  app.put(
+    "/api/articles/:id/priority",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ priority: z.enum(["none", "high", "top"]) }).parse(req.body);
+      res.json({ article: setArticlePriority(db, req.params.id, body.priority) });
     }),
   );
 
@@ -181,11 +193,27 @@ export function registerShelfRoutes(app: Express, db: Db): void {
     }),
   );
 
+  app.delete(
+    "/api/courses/:id",
+    asyncHandler(async (req, res) => {
+      deleteCourse(db, req.params.id);
+      res.json({ ok: true });
+    }),
+  );
+
   app.put(
     "/api/courses/:id/category",
     asyncHandler(async (req, res) => {
       const body = z.object({ category: z.string().min(1).max(40).nullable() }).parse(req.body);
       res.json({ course: setCourseCategory(db, req.params.id, body.category) });
+    }),
+  );
+
+  app.put(
+    "/api/courses/:id/priority",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ priority: z.enum(["none", "high", "top"]) }).parse(req.body);
+      res.json({ course: setCoursePriority(db, req.params.id, body.priority) });
     }),
   );
 
@@ -219,6 +247,7 @@ export function registerShelfRoutes(app: Express, db: Db): void {
           description: z.string().optional().nullable(),
           category: z.string().optional().nullable(),
           tags: z.array(z.string()).optional(),
+          priority: z.enum(["none", "high", "top"]).optional(),
         })
         .parse(req.body);
       res.status(201).json({ project: createWorkshopProject(db, body) });
@@ -250,6 +279,14 @@ export function registerShelfRoutes(app: Express, db: Db): void {
         })
         .parse(req.body);
       res.json({ project: updateWorkshopProject(db, req.params.id, body) });
+    }),
+  );
+
+  app.put(
+    "/api/workshop/projects/:id/priority",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ priority: z.enum(["none", "high", "top"]) }).parse(req.body);
+      res.json({ project: setWorkshopPriority(db, req.params.id, body.priority) });
     }),
   );
 

@@ -183,18 +183,27 @@ nav a.active,
 
 .book-row {
   display: grid;
-  grid-template-columns: 28px auto minmax(0, 1.4fr) minmax(0, 1fr) 148px 132px;
+  grid-template-columns: 28px auto minmax(0, 1.4fr) minmax(0, 1fr) 148px 88px 132px;
   gap: 10px 14px;
   align-items: center;
   padding: 8px 12px;
   text-decoration: none;
 }
 
-.book-row .category-select {
+.book-row .category-select,
+.book-row .priority-select,
+.priority-select,
+.category-select {
   width: 100%;
   padding: 4px 8px;
   border-radius: 8px;
   font-size: 13px;
+}
+
+.shelf-list .priority-select,
+.shelf-list .category-select {
+  width: auto;
+  min-width: 8rem;
 }
 
 .category-editor {
@@ -794,11 +803,25 @@ body:has(.field-page) {
 
 .field-group a {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(96px, 1fr) 3.4rem;
+  grid-template-columns: 14px minmax(0, 1.4fr) minmax(96px, 1fr) 3.4rem;
   gap: 10px;
   align-items: center;
   color: inherit;
   text-decoration: none;
+}
+
+.priority-mark {
+  display: inline-flex;
+  gap: 2px;
+  width: 14px;
+  height: 10px;
+  align-items: center;
+}
+
+.priority-mark i {
+  width: 5px;
+  height: 5px;
+  background: currentColor;
 }
 
 .field-cat-head {
@@ -1185,7 +1208,7 @@ body:has(.field-page) {
     max-height: none;
   }
   .book-row {
-    grid-template-columns: 28px auto minmax(0, 1fr) minmax(108px, 140px) 72px;
+    grid-template-columns: 28px auto minmax(0, 1fr) minmax(96px, 120px) 72px 72px;
   }
   .book-author {
     display: none;

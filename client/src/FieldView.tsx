@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import type { BookCategory, FieldKind, FieldResource } from "@progress-island/shared";
-import { bookCategory, categoryColorCss, fieldFigure, sharePercent } from "@progress-island/shared";
+import type { BookCategory, FieldKind, FieldResource, Priority } from "@progress-island/shared";
+import { bookCategory, categoryColorCss, fieldFigure, priorityRank, sharePercent } from "@progress-island/shared";
 
 type Group = {
   id: string;
@@ -22,6 +22,7 @@ const KIND_LABEL: Record<FieldKind, string> = {
   book: "Book",
   article: "Article",
   course: "Course",
+  workshop: "Project",
 };
 
 function columnsFor(count: number): number {
@@ -45,7 +46,9 @@ function groupsFor(resources: FieldResource[], categories: BookCategory[]): Grou
       id: category.id,
       label: category.label,
       color: categoryColorCss(category.color),
-      items: (byId.get(category.id) ?? []).slice().sort((a, b) => a.title.localeCompare(b.title)),
+      items: (byId.get(category.id) ?? []).slice().sort(
+        (a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.title.localeCompare(b.title),
+      ),
     }));
 }
 
@@ -69,6 +72,17 @@ function SegmentBar({ segments, color }: { segments: number[]; color: string }) 
         </span>
       ))}
     </div>
+  );
+}
+
+function PriorityMark({ priority, color }: { priority: Priority; color: string }) {
+  if (priority === "none") return <span className="priority-mark" aria-hidden="true" />;
+  const label = priority === "top" ? "Top" : "High";
+  return (
+    <span className="priority-mark" style={{ color }} aria-label={label} title={label}>
+      <i />
+      {priority === "top" ? <i /> : null}
+    </span>
   );
 }
 
@@ -185,6 +199,7 @@ export function FieldView({
                               }
                               onBlur={() => setTip((current) => (current?.item.id === item.id ? null : current))}
                             >
+                              <PriorityMark priority={item.priority} color={group.color} />
                               <span className="field-title">{item.title}</span>
                               <ResourceBar item={item} color={group.color} />
                               <span className="field-figure">{figure}</span>
@@ -204,7 +219,9 @@ export function FieldView({
         <div className="field-card" style={{ left: tip.x, top: tip.y }}>
           <strong>{tip.item.title}</strong>
           <p>
-            {KIND_LABEL[tip.item.kind]} · {tip.category} · {fieldFigure(tip.item.kind, tip.item.segments)}
+            {KIND_LABEL[tip.item.kind]} · {tip.category}
+            {tip.item.priority === "none" ? "" : tip.item.priority === "top" ? " · Top" : " · High"} ·{" "}
+            {fieldFigure(tip.item.kind, tip.item.segments)}
           </p>
           <ResourceBar item={tip.item} color={tip.color} />
         </div>

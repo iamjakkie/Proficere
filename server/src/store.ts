@@ -1316,6 +1316,10 @@ export function removeCategory(db: Db, id: string): BookCategory[] {
   return next;
 }
 
+export function setBookPriority(db: Db, bookId: string, priority: "none" | "high" | "top") {
+  return mergeBookIdentifiers(db, bookId, { priority: priority === "none" ? null : priority });
+}
+
 export function mergeBookIdentifiers(
   db: Db,
   bookId: string,

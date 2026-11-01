@@ -295,6 +295,14 @@ ALTER TABLE articles ADD COLUMN category TEXT;
 ALTER TABLE courses ADD COLUMN category TEXT;
 `,
   },
+  {
+    version: 9,
+    sql: `
+ALTER TABLE articles ADD COLUMN priority TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE courses ADD COLUMN priority TEXT NOT NULL DEFAULT 'none';
+ALTER TABLE workshop_projects ADD COLUMN priority TEXT NOT NULL DEFAULT 'none';
+`,
+  },
 ];
 
 export type Db = Database.Database;

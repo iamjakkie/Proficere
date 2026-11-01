@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
-import type { Article, BookCategory } from "@progress-island/shared";
+import type { Article, BookCategory, Priority } from "@progress-island/shared";
 import { api } from "../api";
 import { CategorySelect } from "../CategorySelect";
+import { PrioritySelect } from "../PrioritySelect";
 
 function percentLabel(article: Article): string {
   if (article.status === "completed") return "Finished";
@@ -52,13 +53,22 @@ export function ArticlesPage() {
     setArticles((current) => current.map((item) => (item.id === article.id ? data.article : item)));
   }
 
+  async function assignPriority(article: Article, priority: Priority) {
+    setError(null);
+    const data = await api<{ article: Article }>(`/api/articles/${article.id}/priority`, {
+      method: "PUT",
+      body: JSON.stringify({ priority }),
+    });
+    setArticles((current) => current.map((item) => (item.id === article.id ? data.article : item)));
+  }
+
   return (
     <div className="stack">
       <section className="card article-shelf">
         <h1>Articles</h1>
         <p className="muted">
           A short reading. Articles are not books, so they do not open an exam. The category sets the bar color on Home.
-          Exercise sheets are on Exercises.
+          Priority is a mark on that row: none, high, or top. Exercise sheets are on Exercises.
         </p>
         {error && <p className="banner danger">{error}</p>}
         <form className="category-add" onSubmit={(event) => void addArticle(event)}>
@@ -84,6 +94,11 @@ export function ArticlesPage() {
                   categories={categories}
                   value={article.category}
                   onChange={(category) => void assignCategory(article, category)}
+                />
+                <PrioritySelect
+                  label={`Priority for ${article.title}`}
+                  value={article.priority}
+                  onChange={(priority) => void assignPriority(article, priority)}
                 />
                 <span className="muted">{percentLabel(article)}</span>
               </li>

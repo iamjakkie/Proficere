@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import type { Book, BookCategory } from "@progress-island/shared";
-import { bookCategory } from "@progress-island/shared";
+import type { Book, BookCategory, Priority } from "@progress-island/shared";
+import { bookCategory, cleanPriority } from "@progress-island/shared";
 import { api } from "../api";
+import { PrioritySelect } from "../PrioritySelect";
 
 type LibraryBook = Book & {
   progressPercent: number;
@@ -90,6 +91,30 @@ export function LibraryPage() {
       const data = await api<{ book: Book }>(`/api/books/${book.id}/category`, {
         method: "PUT",
         body: JSON.stringify({ category: category || null }),
+      });
+      setBooks((current) =>
+        current.map((item) =>
+          item.id === book.id ? { ...item, identifiers: data.book.identifiers } : item,
+        ),
+      );
+    } catch (err) {
+      setBooks(previous);
+      setError((err as Error).message);
+    }
+  }
+
+  async function assignPriority(book: LibraryBook, priority: Priority) {
+    const previous = books;
+    setError(null);
+    setBooks((current) =>
+      current.map((item) =>
+        item.id === book.id ? { ...item, identifiers: { ...item.identifiers, priority } } : item,
+      ),
+    );
+    try {
+      const data = await api<{ book: Book }>(`/api/books/${book.id}/priority`, {
+        method: "PUT",
+        body: JSON.stringify({ priority }),
       });
       setBooks((current) =>
         current.map((item) =>
@@ -214,6 +239,11 @@ export function LibraryPage() {
                 </option>
               ))}
             </select>
+            <PrioritySelect
+              label={`Priority for ${book.title}`}
+              value={cleanPriority(book.identifiers.priority)}
+              onChange={(priority) => void assignPriority(book, priority)}
+            />
             <span className="book-meter">
               <span className="progress-bar" aria-label={`${book.title} progress`}>
                 <span style={{ width: `${progressWidth(book)}%` }} />

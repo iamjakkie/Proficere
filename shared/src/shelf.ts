@@ -1,5 +1,20 @@
 import { z } from "zod";
 
+export const priorities = ["none", "high", "top"] as const;
+export const PrioritySchema = z.enum(priorities);
+export type Priority = z.infer<typeof PrioritySchema>;
+
+export function cleanPriority(value: unknown): Priority {
+  return value === "high" || value === "top" ? value : "none";
+}
+
+/** Top sorts before high, and high before none. */
+export function priorityRank(priority: Priority): number {
+  if (priority === "top") return 0;
+  if (priority === "high") return 1;
+  return 2;
+}
+
 /** Readings that are not books. Workbooks are exercise sheets accepted from search. */
 export const articleKinds = ["article", "workbook"] as const;
 export const ArticleKindSchema = z.enum(articleKinds);
@@ -23,6 +38,7 @@ export const ArticleSchema = z.object({
   status: ArticleStatusSchema,
   /** Same category id a book stores in identifiers.category. Null until assigned. */
   category: z.string().nullable(),
+  priority: PrioritySchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -36,6 +52,7 @@ export const CourseSchema = z.object({
   lessonsConfirmed: z.boolean(),
   /** Same category id a book stores in identifiers.category. Null until assigned. */
   category: z.string().nullable(),
+  priority: PrioritySchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -69,6 +86,7 @@ export const WorkshopProjectSchema = z.object({
   description: z.string().nullable(),
   category: z.string().nullable(),
   tags: z.array(z.string()),
+  priority: PrioritySchema,
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -158,6 +176,132 @@ export function parseLessonList(text: string): string[] {
   return titles;
 }
 
+/** Public Udemy course slug, from `/course/:slug`. Null for any other URL. */
+export function udemyCourseSlug(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== "udemy.com") return null;
+  const match = parsed.pathname.match(/^\/course\/([^/]+)\/?/);
+  if (!match) return null;
+  let slug = match[1];
+  try {
+    slug = decodeURIComponent(slug);
+  } catch {
+    return null;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,120}$/.test(slug)) return null;
+  return slug;
+}
+
+/** Section titles from Udemy's public curriculum pages. Lectures and practice items are ignored. */
+export function udemySectionTitles(pages: unknown[]): string[] {
+  const titles: string[] = [];
+  for (const page of pages) {
+    const results = (page as { results?: unknown })?.results;
+    if (!Array.isArray(results)) continue;
+    for (const item of results) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as { _class?: unknown; title?: unknown };
+      if (row._class !== "chapter") continue;
+      const title = String(row.title ?? "").replace(/\s+/g, " ").trim();
+      if (title.length < 2 || title.length > 180) continue;
+      if (titles.some((existing) => existing.toLowerCase() === title.toLowerCase())) continue;
+      titles.push(title);
+      if (titles.length >= 80) return titles;
+    }
+  }
+  return titles;
+}
+
+export type CourseraTarget = { kind: "specialization" | "course"; slug: string };
+
+/** A Coursera specialization, professional certificate, or course. Null for any other URL. */
+export function courseraTarget(url: string): CourseraTarget | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== "coursera.org") return null;
+  const specialization = parsed.pathname.match(/^\/(?:specializations|professional-certificates)\/([^/]+)/);
+  const course = parsed.pathname.match(/^\/learn\/([^/]+)/);
+  const raw = specialization?.[1] ?? course?.[1];
+  if (!raw) return null;
+  let slug = raw;
+  try {
+    slug = decodeURIComponent(slug);
+  } catch {
+    return null;
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,120}$/.test(slug)) return null;
+  return { kind: specialization ? "specialization" : "course", slug };
+}
+
+/**
+ * MIT OpenCourseWare lecture-notes page for a course.
+ * A course home is rewritten to `/pages/lecture-notes/`. A notes URL is kept.
+ */
+export function ocwLectureNotesUrl(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase().replace(/^www\./, "");
+  if (host !== "ocw.mit.edu") return null;
+  const course = parsed.pathname.match(/^\/courses\/([a-z0-9][a-z0-9-]{2,160})(?:\/|$)/i);
+  if (!course) return null;
+  return `https://ocw.mit.edu/courses/${course[1]}/pages/lecture-notes/`;
+}
+
+/** True when a pasted link can load a public section list. */
+export function hasPublicSyllabus(url: string): boolean {
+  return udemyCourseSlug(url) != null || courseraTarget(url) != null || ocwLectureNotesUrl(url) != null;
+}
+
+/** Course titles for a specialization, in the published courseIds order. */
+export function courseraCourseTitles(ids: string[], courses: unknown[]): string[] {
+  const byId = new Map<string, string>();
+  for (const item of courses) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as { id?: unknown; name?: unknown };
+    const id = String(row.id ?? "");
+    const name = String(row.name ?? "").replace(/\s+/g, " ").trim();
+    if (!id || name.length < 2 || name.length > 180) continue;
+    byId.set(id, name);
+  }
+  const titles: string[] = [];
+  for (const id of ids) {
+    const name = byId.get(id);
+    if (!name || titles.some((existing) => existing.toLowerCase() === name.toLowerCase())) continue;
+    titles.push(name);
+    if (titles.length >= 80) break;
+  }
+  return titles;
+}
+
+/** Module titles for one Coursera course. Individual lectures are ignored. */
+export function courseraModuleTitles(modules: unknown[]): string[] {
+  const titles: string[] = [];
+  for (const item of modules) {
+    if (!item || typeof item !== "object") continue;
+    const name = String((item as { name?: unknown }).name ?? "").replace(/\s+/g, " ").trim();
+    if (name.length < 2 || name.length > 180) continue;
+    if (titles.some((existing) => existing.toLowerCase() === name.toLowerCase())) continue;
+    titles.push(name);
+    if (titles.length >= 80) break;
+  }
+  return titles;
+}
+
 export function lessonTitlesFromHtml(html: string): { titles: string[]; reason: string | null } {
   const withoutScripts = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -189,8 +333,36 @@ function decodeHtml(value: string): string {
     .replace(/&amp;/g, "&")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/&quot;/g, '"');
+    .replace(/&#39;|&apos;|&rsquo;|&lsquo;/g, "'")
+    .replace(/&quot;|&ldquo;|&rdquo;/g, '"')
+    .replace(/&ndash;|&mdash;/g, "-");
+}
+
+/** Lecture topics from an OCW notes table. PDF links are dropped. */
+export function ocwLectureTitles(html: string): string[] {
+  const section = html.match(/id="course-content-section"([\s\S]*?)<\/main>/i)?.[1] ?? html;
+  const titles: string[] = [];
+  const rows = section.match(/<tr\b[\s\S]*?<\/tr>/gi) ?? [];
+  for (const row of rows) {
+    const cells = [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((match) =>
+      decodeHtml(match[1].replace(/<[^>]+>/g, " "))
+        .replace(/\s+/g, " ")
+        .trim(),
+    );
+    if (cells.length < 2) continue;
+    const number = cells[0].replace(/\s+/g, "");
+    const topic = cells[cells.length - 1]
+      .replace(/\s*\(\s*PDF\s*\)\s*$/i, "")
+      .replace(/\s+PDF\s*$/i, "")
+      .trim();
+    if (topic.length < 2 || topic.length > 180) continue;
+    if (/^(topics?|lec\.?\s*#?)$/i.test(topic)) continue;
+    const title = /^\d+[a-z]?$/i.test(number) ? `${number}. ${topic}` : topic;
+    if (titles.some((existing) => existing.toLowerCase() === title.toLowerCase())) continue;
+    titles.push(title);
+    if (titles.length >= 80) break;
+  }
+  return titles;
 }
 
 export function isPdfLink(url: string): boolean {
@@ -468,7 +640,7 @@ export function lessonProgress(done: number, total: number): number {
   return Math.min(1, Math.max(0, done / total));
 }
 
-export const fieldKinds = ["book", "article", "course"] as const;
+export const fieldKinds = ["book", "article", "course", "workshop"] as const;
 export const FieldKindSchema = z.enum(fieldKinds);
 export type FieldKind = z.infer<typeof FieldKindSchema>;
 
@@ -478,7 +650,8 @@ export const FieldResourceSchema = z.object({
   title: z.string(),
   category: z.string().nullable(),
   href: z.string(),
-  /** 0–1 per chapter or lesson. An article is one segment. */
+  priority: PrioritySchema,
+  /** 0–1 per chapter, lesson, or workshop task. An article is one segment. */
   segments: z.array(z.number().min(0).max(1)),
 });
 export type FieldResource = z.infer<typeof FieldResourceSchema>;
@@ -501,6 +674,11 @@ export function courseSegments(lessons: { done: boolean }[]): number[] {
 
 export function articleSegments(progressPercent: number): number[] {
   return [clampUnit(progressPercent / 100)];
+}
+
+/** One segment per task. Only a task in Done is filled. */
+export function workshopSegments(cards: { column: string }[]): number[] {
+  return cards.map((card) => (card.column === "done" ? 1 : 0));
 }
 
 /** Whole segments only. A chapter or lesson still in progress is not finished. */

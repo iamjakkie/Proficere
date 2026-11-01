@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 import {
   AppError,
+  cleanPriority,
   lessonProgress,
   rankExerciseHits,
   type ActiveCourse,
@@ -10,6 +11,7 @@ import {
   type Course,
   type CourseLesson,
   type ExerciseHit,
+  type Priority,
   type SearchReading,
   type ExerciseSuggestion,
   type IslandMarker,
@@ -44,6 +46,7 @@ function mapArticle(row: Record<string, unknown>): Article {
     progressPercent: Number(row.progress_percent) || 0,
     status: (row.status as ArticleStatus) ?? "not_started",
     category: cleanAssignedCategory(row.category),
+    priority: cleanPriority(row.priority),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -57,6 +60,7 @@ function mapCourse(row: Record<string, unknown>): Course {
     note: (row.note as string | null) ?? null,
     lessonsConfirmed: Boolean(row.lessons_confirmed),
     category: cleanAssignedCategory(row.category),
+    priority: cleanPriority(row.priority),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -94,6 +98,7 @@ function mapProject(row: Record<string, unknown>): WorkshopProject {
     description: (row.description as string | null) ?? null,
     category: (row.category as string | null) ?? null,
     tags,
+    priority: cleanPriority(row.priority),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
@@ -254,10 +259,31 @@ export function getCourse(db: Db, id: string): Course {
   return mapCourse(row);
 }
 
+export function deleteCourse(db: Db, id: string): void {
+  getCourse(db, id);
+  const remove = db.transaction(() => {
+    db.prepare("DELETE FROM course_lessons WHERE course_id = ?").run(id);
+    db.prepare("DELETE FROM courses WHERE id = ?").run(id);
+  });
+  remove();
+}
+
+export function setArticlePriority(db: Db, id: string, priority: Priority): Article {
+  getArticle(db, id);
+  db.prepare("UPDATE articles SET priority = ?, updated_at = ? WHERE id = ?").run(priority, nowIso(), id);
+  return getArticle(db, id);
+}
+
 export function setCourseCategory(db: Db, id: string, category: string | null): Course {
   getCourse(db, id);
   const value = requireKnownCategory(db, category);
   db.prepare("UPDATE courses SET category = ?, updated_at = ? WHERE id = ?").run(value, nowIso(), id);
+  return getCourse(db, id);
+}
+
+export function setCoursePriority(db: Db, id: string, priority: Priority): Course {
+  getCourse(db, id);
+  db.prepare("UPDATE courses SET priority = ?, updated_at = ? WHERE id = ?").run(priority, nowIso(), id);
   return getCourse(db, id);
 }
 
@@ -339,6 +365,12 @@ export function setLessonDone(db: Db, courseId: string, lessonId: string, done: 
   );
 }
 
+export function setWorkshopPriority(db: Db, id: string, priority: Priority): WorkshopProject {
+  getWorkshopProject(db, id);
+  db.prepare("UPDATE workshop_projects SET priority = ?, updated_at = ? WHERE id = ?").run(priority, nowIso(), id);
+  return getWorkshopProject(db, id);
+}
+
 export function listWorkshopProjects(db: Db): WorkshopProject[] {
   return (
     db.prepare("SELECT * FROM workshop_projects ORDER BY updated_at DESC").all() as Record<string, unknown>[]
@@ -362,21 +394,22 @@ export function listWorkshopCards(db: Db, projectId: string): WorkshopCard[] {
 
 export function createWorkshopProject(
   db: Db,
-  input: { title: string; description?: string | null; category?: string | null; tags?: string[] },
+  input: { title: string; description?: string | null; category?: string | null; tags?: string[]; priority?: Priority },
 ): WorkshopProject {
   const title = input.title.trim();
   if (!title) throw new AppError("A project needs a title.", "validation", 400);
   const id = uuid();
   const ts = nowIso();
   db.prepare(
-    `INSERT INTO workshop_projects (id, title, description, category, tags_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO workshop_projects (id, title, description, category, tags_json, priority, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     title,
     input.description?.trim() || null,
     cleanCategory(input.category),
     JSON.stringify(cleanTags(input.tags)),
+    cleanPriority(input.priority),
     ts,
     ts,
   );

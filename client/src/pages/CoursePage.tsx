@@ -1,17 +1,19 @@
-import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import type { Course, CourseLesson } from "@progress-island/shared";
-import { parseLessonList } from "@progress-island/shared";
+import { hasPublicSyllabus, parseLessonList } from "@progress-island/shared";
 import { api } from "../api";
 
 export function CoursePage() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<CourseLesson[]>([]);
   const [paste, setPaste] = useState("");
   const [preview, setPreview] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const autoReadFor = useRef<string | null>(null);
 
   function load() {
     if (!id) return;
@@ -26,6 +28,13 @@ export function CoursePage() {
   useEffect(() => {
     load();
   }, [id]);
+
+  useEffect(() => {
+    if (!course || lessons.length > 0 || autoReadFor.current === course.id) return;
+    if (!hasPublicSyllabus(course.url)) return;
+    autoReadFor.current = course.id;
+    void tryRead();
+  }, [course, lessons.length]);
 
   function showPaste() {
     setError(null);
@@ -54,6 +63,18 @@ export function CoursePage() {
       setError((err as Error).message);
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function removeCourse() {
+    if (!course) return;
+    if (!window.confirm(`Delete ${course.title}? Its lessons are removed with it.`)) return;
+    setError(null);
+    try {
+      await api(`/api/courses/${course.id}`, { method: "DELETE" });
+      navigate("/courses");
+    } catch (err) {
+      setError((err as Error).message);
     }
   }
 
@@ -94,6 +115,9 @@ export function CoursePage() {
           <a className="btn primary" href={course.url} target="_blank" rel="noreferrer">
             Open
           </a>
+          <button className="btn ghost" type="button" onClick={() => void removeCourse()}>
+            Delete
+          </button>
           <span className="muted">Opens the course site in a new tab. Mark a lesson when you come back.</span>
         </p>
         {lessons.length > 0 && (
@@ -103,7 +127,13 @@ export function CoursePage() {
           </p>
         )}
         {error && <p className="banner danger">{error}</p>}
-        {lessons.length === 0 && <p>No lessons stored yet. Paste a list, or try to read titles from a public page, then confirm.</p>}
+        {lessons.length === 0 && (
+          <p>
+            {busy
+              ? "Reading the public section list…"
+              : "No lessons stored yet. A Udemy, Coursera, or MIT OpenCourseWare link loads its public list for confirmation. Otherwise paste a list, or try to read titles from a public page, then confirm."}
+          </p>
+        )}
         <ul className="lesson-list">
           {lessons.map((lesson) => (
             <li key={lesson.id}>

@@ -116,6 +116,7 @@ import {
   logActivity,
   markStalePacks,
   mergeBookIdentifiers,
+  setBookPriority,
   nextSelectedChapter,
   nowIso,
   printQueue,
@@ -435,6 +436,14 @@ export function createApp(db: Db): Express {
       }
       const book = mergeBookIdentifiers(db, req.params.id, { category: body.category });
       res.json({ book });
+    }),
+  );
+
+  app.put(
+    "/api/books/:id/priority",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ priority: z.enum(["none", "high", "top"]) }).parse(req.body);
+      res.json({ book: setBookPriority(db, req.params.id, body.priority) });
     }),
   );
 
