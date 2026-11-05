@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { seedCalculations, type ProjectProposal } from "@progress-island/shared";
 import { ApiError, api } from "../api";
+import { CommonMathField } from "../CommonMathField";
 import { Markdown } from "../markdown";
 import { PlaneFigure } from "../PlaneFigure";
 
@@ -124,7 +125,7 @@ export function ProjectsPage() {
     if (!detail || !exam || scriptFor === detail.project.id) return;
     const exercises = exam.exercises ?? [];
     if (exercises.length > 0) {
-      setAnswers(exercises.map((item) => (item.kind === "calculation" ? seedCalculations(item.given) : "")));
+      setAnswers(exercises.map((item) => (item.kind === "calculation" && !item.action?.trim() ? seedCalculations(item.given) : "")));
       setRuns(exercises.map(() => null));
       setDeliverable("");
     } else {
@@ -269,7 +270,10 @@ export function ProjectsPage() {
     setError(null);
     try {
       const taskPayload = workbook
-        ? exercises.map((_, index) => ({ index, answer: answers[index] ?? "" }))
+        ? exercises.map((_, index) => ({
+            index,
+            answer: answers[index] ?? "",
+          }))
         : undefined;
       const taskScript = workbook
         ? exercises
@@ -326,7 +330,7 @@ export function ProjectsPage() {
     <div className="stack">
       <div>
         <h1>Exams</h1>
-        <p className="muted">Each row is an exam. Open it to write the derivation.</p>
+        <p className="muted">Each row is an exam. Open it to work the tasks.</p>
       </div>
       {error && (
         <p className="banner danger" role="alert">
@@ -433,7 +437,7 @@ export function ProjectsPage() {
                 </div>
                 {open && detail && (
                   <div className="project-body stack">
-                    {(detail.project.brief.exam?.exercises.length ?? 0) > 0 ? (
+                    {detail.project.brief.exam && detail.project.brief.exam.exercises.length > 0 ? (
                       <ExamTasks
                         exam={detail.project.brief.exam}
                         active={detail.project.status === "active" || detail.project.status === "paused"}
@@ -448,6 +452,13 @@ export function ProjectsPage() {
                             return next;
                           })
                         }
+                        onDraft={(index, value) => {
+                          setAnswers((current) => {
+                            const next = current.slice();
+                            next[index] = value;
+                            return next;
+                          });
+                        }}
                         onConsent={setGradeConsent}
                         onRun={(index) => void runTask(index)}
                         onSubmit={() => void submitExam()}
@@ -585,6 +596,7 @@ function ExamTasks({
   busy,
   gradeConsent,
   onAnswer,
+  onDraft,
   onConsent,
   onRun,
   onSubmit,
@@ -596,12 +608,20 @@ function ExamTasks({
   busy: boolean;
   gradeConsent: boolean;
   onAnswer: (index: number, value: string) => void;
+  onDraft: (index: number, value: string) => void;
   onConsent: (value: boolean) => void;
   onRun: (index: number) => void;
   onSubmit: () => void;
 }) {
   const exercises = exam.exercises ?? [];
   const needsModel = exercises.some((item) => item.kind === "theory");
+  const math = exercises.some((item) => item.kind === "calculation" && Boolean(item.action?.trim()));
+  const scripts = exercises.some((item) => item.kind === "calculation" && !item.action?.trim());
+  const guidance = math && !scripts
+      ? "Write each answer yourself. Check compares it and does not solve the task. A written task stays in its own box. Submit grades the exam as a count of the tasks that match. Seven out of ten passes."
+    : scripts && !math
+      ? "Run checks one calculation. A written task stays in its own box. Submit grades the exam as a count of the tasks that match. Seven out of ten passes the exam."
+      : "Write a math answer and check it. A script box still uses SymPy. A written task stays in its own box. Submit grades the exam. Seven out of ten passes.";
   return (
     <form
       className="stack"
@@ -616,7 +636,30 @@ function ExamTasks({
           <h3>Task {index + 1}</h3>
           <Markdown source={item.ask} />
           <ExamData given={item.given} heading={false} />
-          {active && item.kind === "calculation" ? (
+          {active && item.kind === "calculation" && item.action?.trim() ? (
+            <>
+              <CommonMathField label={`Answer for task ${index + 1}`} onDraft={(value) => onDraft(index, value)} />
+              {runs[index] ? (
+                <p
+                  className={
+                    runs[index]?.requiredFound === runs[index]?.requiredTotal && !runs[index]?.operational
+                      ? "exam-check"
+                      : "exam-check failed"
+                  }
+                  role="status"
+                >
+                  {runs[index]?.operational || runs[index]?.summary || runs[index]?.error}
+                </p>
+              ) : (
+                <p className="muted">Check compares your answer. It does not solve the task.</p>
+              )}
+              <div className="row">
+                <button className="btn" type="button" disabled={busy} onClick={() => onRun(index)}>
+                  Check
+                </button>
+              </div>
+            </>
+          ) : active && item.kind === "calculation" ? (
             <>
               <div className="exam-work exam-task-work">
                 <textarea
@@ -652,10 +695,7 @@ function ExamTasks({
       ))}
       {active && (
         <>
-          <p className="muted">
-            Run checks one calculation. A written task stays in its own box. Submit grades the exam as a count of the
-            tasks that match. Seven out of ten passes the exam.
-          </p>
+          <p className="muted">{guidance}</p>
           {needsModel && (
             <label className="row">
               <input type="checkbox" checked={gradeConsent} onChange={(event) => onConsent(event.target.checked)} />

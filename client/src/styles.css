@@ -490,6 +490,19 @@ textarea {
   background: var(--card);
 }
 
+.exam-task common-math {
+  width: 100%;
+}
+
+.exam-check {
+  margin: 0;
+  color: var(--good);
+}
+
+.exam-check.failed {
+  color: var(--danger);
+}
+
 .exam-task h3 {
   margin: 0;
 }
