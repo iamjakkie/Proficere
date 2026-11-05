@@ -1,5 +1,6 @@
 import type { CriterionCheck, ProjectProposal } from "@progress-island/shared";
 import { parseDerivation, sympyImports } from "@progress-island/shared";
+import { checkCommonMathAnswer } from "./common-math-check.js";
 import { checkDerivation } from "./derivation-check.js";
 import { gradeExamWithAi, gradeWrittenAnswers, taskScore } from "./project-ai.js";
 
@@ -15,13 +16,21 @@ export type ExamReview = {
   notes: { line: number; text: string }[] | null;
 };
 
-function criterion(status: CriterionCheck["status"], explanation: string, operational: boolean): CriterionCheck {
+function criterion(
+  status: CriterionCheck["status"],
+  explanation: string,
+  operational: boolean,
+  engine: "sympy" | "common-math" = "sympy",
+): CriterionCheck {
   return {
     criterionId: "derivation",
     method: "derivation",
     status,
     explanation,
-    coverage: "SymPy checks each assignment and each required step. The grade is a separate review of the write-up.",
+    coverage:
+      engine === "common-math"
+        ? "CommonMath runs each expression and compares it with the stored value. A written answer is graded separately."
+        : "SymPy checks each assignment and each required step. The grade is a separate review of the write-up.",
     operational,
   };
 }
@@ -37,7 +46,7 @@ function hides(text: string, secrets: string[]): boolean {
 export async function reviewExam(input: {
   brief: ProjectProposal;
   deliverable: string;
-  tasks?: { index: number; answer: string }[];
+  tasks?: { index: number; answer: string; action?: string }[];
   gradeWithModel: boolean;
 }): Promise<ExamReview> {
   const exercises = input.brief.exam?.exercises ?? [];
@@ -198,16 +207,18 @@ export async function reviewExam(input: {
 
 async function reviewWorkbook(input: {
   brief: ProjectProposal;
-  tasks?: { index: number; answer: string }[];
+  tasks?: { index: number; answer: string; action?: string }[];
   gradeWithModel: boolean;
 }): Promise<ExamReview> {
   const exercises = input.brief.exam?.exercises ?? [];
   const answers = input.tasks ?? [];
+  const math = exercises.some((item) => item.kind === "calculation" && Boolean(item.action?.trim()));
   const rows: { index: number; passed: boolean; operational: boolean; note: string }[] = [];
   const written: { index: number; ask: string; answer: string }[] = [];
   for (let index = 0; index < exercises.length; index += 1) {
     const exercise = exercises[index];
-    const answer = answers.find((item) => item.index === index)?.answer ?? "";
+    const submitted = answers.find((item) => item.index === index);
+    const answer = submitted?.answer ?? "";
     if (!exercise || exercise.kind === "theory") {
       if (!answer.trim()) rows.push({ index, passed: false, operational: false, note: "The written answer is blank." });
       else if (!input.gradeWithModel) rows.push({ index, passed: false, operational: true, note: "The written answer was not graded." });
@@ -215,6 +226,16 @@ async function reviewWorkbook(input: {
         written.push({ index, ask: exercise?.ask ?? "", answer });
         rows.push({ index, passed: false, operational: true, note: "The written answer was not graded." });
       }
+      continue;
+    }
+    if (exercise.action?.trim()) {
+      const checked = await checkCommonMathAnswer({
+        latex: answer,
+        action: submitted?.action?.trim() || exercise.action,
+        given: exercise.given,
+        reference: exercise.reference,
+      });
+      rows.push({ index, ...checked });
       continue;
     }
     const checked = await checkCalculation(exercise.target, exercise.reference, answer);
@@ -240,7 +261,7 @@ async function reviewWorkbook(input: {
   const notes = rows.map((row) => ({ line: row.index + 1, text: row.note }));
   if (!score.complete) {
     return {
-      objective: [criterion("not_run", `${score.grade} tasks were checked. A written review did not finish.`, true)],
+      objective: [criterion("not_run", `${score.grade} tasks were checked. A written review did not finish.`, true, math ? "common-math" : "sympy")],
       reasoning: [],
       questions: [],
       label: "operational_failure",
@@ -252,7 +273,7 @@ async function reviewWorkbook(input: {
     };
   }
   return {
-    objective: [criterion(score.passed ? "passed" : "failed", `${score.grade} tasks match.`, false)],
+    objective: [criterion(score.passed ? "passed" : "failed", `${score.grade} tasks match.`, false, math ? "common-math" : "sympy")],
     reasoning: [],
     questions: [],
     label: score.passed ? "passed" : "failed",

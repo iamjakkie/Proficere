@@ -34,6 +34,8 @@ export const ExamExerciseSchema = z.object({
   given: z.array(z.string().max(200)).max(6).default([]),
   target: z.string().max(40).default(""),
   reference: z.string().max(400).default(""),
+  /** CommonMath action, such as `calculate` or `differentiate x`. Empty keeps the SymPy script. */
+  action: z.string().max(80).optional().default(""),
   kind: z.enum(["calculation", "theory"]),
 });
 export type ExamExercise = z.infer<typeof ExamExerciseSchema>;
@@ -525,6 +527,7 @@ export function preserveExamKey(incoming: ProjectProposal, stored: ProjectPropos
       exercises: (incoming.exam.exercises ?? []).map((item, index) => ({
         ...item,
         reference: storedExercises[index]?.reference ?? item.reference,
+        action: item.action?.trim() ? item.action : (storedExercises[index]?.action ?? item.action),
       })),
     },
   };

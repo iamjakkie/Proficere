@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import { examInputsArePresent, expressionIsClosed, taskScore, workbookShape } from "./project-ai.js";
 
 const checks = [
-  { ask: "The distance is 12 m and the time is 3 s. Assign `speed`.", given: ["distance = 12", "time = 3"], target: "speed", reference: "distance/time", kind: "calculation" },
-  { ask: "The speed stays constant for 5 s more. Assign `extra_distance`.", given: ["extra_time = 5"], target: "extra_distance", reference: "speed*extra_time", kind: "calculation" },
+  { ask: "The distance is 12 m and the time is 3 s. Find `speed`.", given: ["distance = 12", "time = 3"], target: "speed", reference: "4", action: "calculate", kind: "calculation" },
+  { ask: "The speed stays constant for 5 s more. Find `extra_distance`.", given: ["extra_time = 5"], target: "extra_distance", reference: "20", action: "calculate", kind: "calculation" },
   { ask: "Which repeated measurement would show the speed was not constant?", given: [], target: "", reference: "", kind: "theory" },
 ];
 
@@ -36,7 +36,8 @@ describe("exam coverage", () => {
             ask: "Explain the physical floor. Explain the mathematical model. Explain the measurements. Propose another observation. Describe the evidence against the model.",
             given: ["length = 8"],
             target: "volume",
-            reference: "length*width*height",
+            reference: "192",
+            action: "calculate",
             kind: "calculation",
           },
           ...checks,

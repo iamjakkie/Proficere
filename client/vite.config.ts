@@ -3,6 +3,9 @@ import path from "node:path";
 import { defineConfig, type Connect, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
+const apiPort = process.env.PORT ?? "3001";
+const clientPort = Number(process.env.CLIENT_PORT ?? 5173);
+
 function pdfjsAssets(): Plugin {
   const cmaps = path.resolve(__dirname, "../node_modules/pdfjs-dist/cmaps");
   const fonts = path.resolve(__dirname, "../node_modules/pdfjs-dist/standard_fonts");
@@ -49,9 +52,13 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 5173,
+    port: clientPort,
+    strictPort: true,
     proxy: {
-      "/api": "http://127.0.0.1:3001",
+      "/api": `http://127.0.0.1:${apiPort}`,
     },
+  },
+  optimizeDeps: {
+    exclude: ["common-math"],
   },
 });

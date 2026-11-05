@@ -490,6 +490,10 @@ textarea {
   background: var(--card);
 }
 
+.exam-task common-math {
+  width: 100%;
+}
+
 .exam-task h3 {
   margin: 0;
 }

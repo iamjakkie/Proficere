@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest";
+import type { ProjectProposal } from "@progress-island/shared";
+import { bindGiven, checkCommonMathAnswer, sameLatex } from "./common-math-check.js";
+import { reviewExam } from "./exam-review.js";
+
+const brief = {
+  exam: {
+    prompt: "tasks",
+    given: [],
+    target: "speed",
+    reference: "4",
+    required: [],
+    starter: "",
+    exercises: [
+      {
+        ask: "A cart travels 12 m in 3 s. Find `speed` in metres per second.",
+        given: ["distance = 12", "time = 3"],
+        target: "speed",
+        reference: "4",
+        action: "calculate",
+        kind: "calculation" as const,
+      },
+      {
+        ask: "Differentiate x squared.",
+        given: [],
+        target: "slope",
+        reference: "2x",
+        action: "differentiate x",
+        kind: "calculation" as const,
+      },
+      {
+        ask: "What repeated measurement would show the speed was not constant?",
+        given: [],
+        target: "",
+        reference: "",
+        action: "",
+        kind: "theory" as const,
+      },
+    ],
+  },
+} as unknown as ProjectProposal;
+
+describe("common math exams", () => {
+  it("substitutes given names without touching a longer name", () => {
+    expect(bindGiven(String.raw`\frac{distance}{time}`, ["time = 3", "distance = 12"])).toBe(String.raw`\frac{12}{3}`);
+  });
+
+  it("treats an equivalent result as the same value", () => {
+    expect(sameLatex(String.raw`\frac{5}{6}`, String.raw`\frac{5}{6}`)).toBe(true);
+    expect(sameLatex("4", String.raw`\frac{12}{3}`)).toBe(true);
+    expect(sameLatex(String.raw`\bigl\lbrack1, -1\bigr\rbrack`, String.raw`\bigl\lbrack-1, 1\bigr\rbrack`)).toBe(true);
+    expect(sameLatex("4", "5")).toBe(false);
+  });
+
+  it("grades an expression and does not reveal the stored result", async () => {
+    const review = await reviewExam({
+      brief,
+      deliverable: "",
+      gradeWithModel: false,
+      tasks: [
+        { index: 0, answer: String.raw`\frac{distance}{time}`, action: "calculate" },
+        { index: 1, answer: "x^2", action: "differentiate x" },
+        { index: 2, answer: "" },
+      ],
+    });
+    expect(review.grade).toBe("2/3");
+    expect(review.passed).toBe(false);
+    expect(review.notes?.map((note) => note.text)).toEqual(["Matches.", "Matches.", "The written answer is blank."]);
+    expect(review.notes?.some((note) => note.text.includes("2x") || note.text === "4")).toBe(false);
+    expect(review.objective[0]?.coverage).toContain("CommonMath");
+  });
+
+  it("marks a wrong result without quoting the key", async () => {
+    const checked = await checkCommonMathAnswer({
+      latex: "5",
+      action: "calculate",
+      given: ["distance = 12", "time = 3"],
+      reference: String.raw`\frac{12}{3}`,
+    });
+    expect(checked).toEqual({ passed: false, operational: false, note: "Does not match." });
+  });
+});

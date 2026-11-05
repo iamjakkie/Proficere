@@ -297,7 +297,16 @@ function requireConsent(body: { consent?: boolean }): void {
 
 export function createApp(db: Db): Express {
   const app = express();
-  app.use(cors({ origin: [config.clientOrigin, "http://localhost:5173"] }));
+  app.use(
+    cors({
+      origin: [
+        config.clientOrigin,
+        `http://localhost:${process.env.CLIENT_PORT ?? "5173"}`,
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+      ],
+    }),
+  );
   app.use(express.json({ limit: "2mb" }));
 
   app.get("/api/health", (_req, res) => {
@@ -1261,7 +1270,13 @@ export function createApp(db: Db): Express {
           deliverable: z.string().max(20000),
           prediction: z.string().max(2000).nullable().optional(),
           tasks: z
-            .array(z.object({ index: z.number().int().nonnegative(), answer: z.string().max(8000) }))
+            .array(
+              z.object({
+                index: z.number().int().nonnegative(),
+                answer: z.string().max(8000),
+                action: z.string().max(80).optional(),
+              }),
+            )
             .max(10)
             .optional(),
         })

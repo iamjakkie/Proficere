@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@progress-island/shared": "*",
+    "@cortex-js/compute-engine": "0.173.0",
     "better-sqlite3": "^11.8.1",
+    "common-math": "file:../vendor/common-math-0.1.0.tgz",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
