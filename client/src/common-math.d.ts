@@ -6,6 +6,7 @@ declare global {
       "common-math": DetailedHTMLProps<HTMLAttributes<HTMLElement>, HTMLElement> & {
         value?: string;
         action?: string;
+        mode?: "answer";
         theme?: "light" | "dark" | "system";
       };
     }

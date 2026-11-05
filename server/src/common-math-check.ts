@@ -1,5 +1,4 @@
 import { ComputeEngine, type Expression } from "@cortex-js/compute-engine";
-import { parseAction, runOperation } from "common-math/engine";
 
 export type MathCheck = { passed: boolean; operational: boolean; note: string };
 
@@ -83,35 +82,22 @@ export function sameLatex(leftLatex: string, rightLatex: string): boolean {
 }
 
 /**
- * Run the expression the student wrote and compare it with the stored result.
- * The note never includes that stored result.
+ * Compare the answer the student wrote with the stored answer.
+ * The stored action is not applied, and the note never includes the stored answer.
  */
 export async function checkCommonMathAnswer(input: {
   latex: string;
-  action: string;
-  given: string[];
   reference: string;
 }): Promise<MathCheck> {
-  const parsed = parseAction(input.action.trim());
-  if (!parsed.ok) return { passed: false, operational: false, note: parsed.message };
-  const latex = bindGiven(input.latex, input.given).trim();
-  if (!latex) return { passed: false, operational: false, note: "Write an expression to run." };
-  let result;
+  const latex = input.latex.trim();
+  if (!latex) return { passed: false, operational: false, note: "Write an answer to check." };
+  const reference = input.reference.trim();
+  if (!reference) return { passed: false, operational: true, note: "This task has no stored answer to check." };
+  let passed = false;
   try {
-    result = await runOperation({ latex, operation: parsed.operation, timeoutMs: 8000 });
+    passed = sameLatex(latex, reference);
   } catch {
-    return { passed: false, operational: true, note: "The calculation did not finish." };
+    return { passed: false, operational: true, note: "The answer could not be checked." };
   }
-  if (result.status === "timeout") {
-    return { passed: false, operational: true, note: "The calculation took too long and was stopped." };
-  }
-  if (result.status !== "success" || !result.resultLatex) {
-    return {
-      passed: false,
-      operational: false,
-      note: result.message?.trim() || "This expression did not produce a result.",
-    };
-  }
-  const passed = sameLatex(result.resultLatex, bindGiven(input.reference, input.given));
   return { passed, operational: false, note: passed ? "Matches." : "Does not match." };
 }

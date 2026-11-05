@@ -34,7 +34,7 @@ export const ExamExerciseSchema = z.object({
   given: z.array(z.string().max(200)).max(6).default([]),
   target: z.string().max(40).default(""),
   reference: z.string().max(400).default(""),
-  /** CommonMath action, such as `calculate` or `differentiate x`. Empty keeps the SymPy script. */
+  /** Marks a CommonMath answer check. Empty keeps the SymPy script. The action is not applied to the answer. */
   action: z.string().max(80).optional().default(""),
   kind: z.enum(["calculation", "theory"]),
 });

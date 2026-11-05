@@ -52,14 +52,14 @@ describe("common math exams", () => {
     expect(sameLatex("4", "5")).toBe(false);
   });
 
-  it("grades an expression and does not reveal the stored result", async () => {
+  it("grades the written answer and does not solve the task", async () => {
     const review = await reviewExam({
       brief,
       deliverable: "",
       gradeWithModel: false,
       tasks: [
-        { index: 0, answer: String.raw`\frac{distance}{time}`, action: "calculate" },
-        { index: 1, answer: "x^2", action: "differentiate x" },
+        { index: 0, answer: String.raw`\frac{12}{3}`, action: "calculate" },
+        { index: 1, answer: "2x", action: "differentiate x" },
         { index: 2, answer: "" },
       ],
     });
@@ -67,14 +67,20 @@ describe("common math exams", () => {
     expect(review.passed).toBe(false);
     expect(review.notes?.map((note) => note.text)).toEqual(["Matches.", "Matches.", "The written answer is blank."]);
     expect(review.notes?.some((note) => note.text.includes("2x") || note.text === "4")).toBe(false);
-    expect(review.objective[0]?.coverage).toContain("CommonMath");
+    expect(review.objective[0]?.coverage).toContain("does not solve");
   });
 
-  it("marks a wrong result without quoting the key", async () => {
+  it("does not differentiate the expression the student typed", async () => {
+    const checked = await checkCommonMathAnswer({
+      latex: "x^2",
+      reference: "2x",
+    });
+    expect(checked).toEqual({ passed: false, operational: false, note: "Does not match." });
+  });
+
+  it("marks a wrong answer without quoting the key", async () => {
     const checked = await checkCommonMathAnswer({
       latex: "5",
-      action: "calculate",
-      given: ["distance = 12", "time = 3"],
       reference: String.raw`\frac{12}{3}`,
     });
     expect(checked).toEqual({ passed: false, operational: false, note: "Does not match." });

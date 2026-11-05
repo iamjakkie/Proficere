@@ -85,7 +85,6 @@ export function ProjectsPage() {
   const [openProposal, setOpenProposal] = useState<string | null>(null);
   const [deliverable, setDeliverable] = useState("");
   const [answers, setAnswers] = useState<string[]>([]);
-  const [actions, setActions] = useState<string[]>([]);
   const [runs, setRuns] = useState<(RunResult | null)[]>([]);
   const [filter, setFilter] = useState("");
   const [seeded, setSeeded] = useState(false);
@@ -127,7 +126,6 @@ export function ProjectsPage() {
     const exercises = exam.exercises ?? [];
     if (exercises.length > 0) {
       setAnswers(exercises.map((item) => (item.kind === "calculation" && !item.action?.trim() ? seedCalculations(item.given) : "")));
-      setActions(exercises.map((item) => item.action ?? ""));
       setRuns(exercises.map(() => null));
       setDeliverable("");
     } else {
@@ -272,10 +270,9 @@ export function ProjectsPage() {
     setError(null);
     try {
       const taskPayload = workbook
-        ? exercises.map((item, index) => ({
+        ? exercises.map((_, index) => ({
             index,
             answer: answers[index] ?? "",
-            action: item.kind === "calculation" ? actions[index] || item.action || "" : "",
           }))
         : undefined;
       const taskScript = workbook
@@ -455,15 +452,10 @@ export function ProjectsPage() {
                             return next;
                           })
                         }
-                        onDraft={(index, value, action) => {
+                        onDraft={(index, value) => {
                           setAnswers((current) => {
                             const next = current.slice();
                             next[index] = value;
-                            return next;
-                          });
-                          setActions((current) => {
-                            const next = current.slice();
-                            next[index] = action;
                             return next;
                           });
                         }}
@@ -616,7 +608,7 @@ function ExamTasks({
   busy: boolean;
   gradeConsent: boolean;
   onAnswer: (index: number, value: string) => void;
-  onDraft: (index: number, value: string, action: string) => void;
+  onDraft: (index: number, value: string) => void;
   onConsent: (value: boolean) => void;
   onRun: (index: number) => void;
   onSubmit: () => void;
@@ -626,10 +618,10 @@ function ExamTasks({
   const math = exercises.some((item) => item.kind === "calculation" && Boolean(item.action?.trim()));
   const scripts = exercises.some((item) => item.kind === "calculation" && !item.action?.trim());
   const guidance = math && !scripts
-    ? "Write each calculation in the math editor and run it there. A written task stays in its own box. Submit grades the exam as a count of the tasks that match. Seven out of ten passes."
+      ? "Write each answer yourself. Check compares it and does not solve the task. A written task stays in its own box. Submit grades the exam as a count of the tasks that match. Seven out of ten passes."
     : scripts && !math
       ? "Run checks one calculation. A written task stays in its own box. Submit grades the exam as a count of the tasks that match. Seven out of ten passes the exam."
-      : "A math editor checks the expression you run. A script box still uses SymPy. A written task stays in its own box. Submit grades the exam. Seven out of ten passes.";
+      : "Write a math answer and check it. A script box still uses SymPy. A written task stays in its own box. Submit grades the exam. Seven out of ten passes.";
   return (
     <form
       className="stack"
@@ -645,11 +637,28 @@ function ExamTasks({
           <Markdown source={item.ask} />
           <ExamData given={item.given} heading={false} />
           {active && item.kind === "calculation" && item.action?.trim() ? (
-            <CommonMathField
-              action={item.action}
-              label={`Expression for task ${index + 1}`}
-              onDraft={(value, action) => onDraft(index, value, action)}
-            />
+            <>
+              <CommonMathField label={`Answer for task ${index + 1}`} onDraft={(value) => onDraft(index, value)} />
+              {runs[index] ? (
+                <p
+                  className={
+                    runs[index]?.requiredFound === runs[index]?.requiredTotal && !runs[index]?.operational
+                      ? "exam-check"
+                      : "exam-check failed"
+                  }
+                  role="status"
+                >
+                  {runs[index]?.operational || runs[index]?.summary || runs[index]?.error}
+                </p>
+              ) : (
+                <p className="muted">Check compares your answer. It does not solve the task.</p>
+              )}
+              <div className="row">
+                <button className="btn" type="button" disabled={busy} onClick={() => onRun(index)}>
+                  Check
+                </button>
+              </div>
+            </>
           ) : active && item.kind === "calculation" ? (
             <>
               <div className="exam-work exam-task-work">

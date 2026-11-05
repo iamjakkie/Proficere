@@ -29,7 +29,7 @@ function criterion(
     explanation,
     coverage:
       engine === "common-math"
-        ? "CommonMath runs each expression and compares it with the stored value. A written answer is graded separately."
+        ? "CommonMath compares the answer the student wrote with the stored answer. It does not solve the task. A written answer is graded separately."
         : "SymPy checks each assignment and each required step. The grade is a separate review of the write-up.",
     operational,
   };
@@ -231,8 +231,6 @@ async function reviewWorkbook(input: {
     if (exercise.action?.trim()) {
       const checked = await checkCommonMathAnswer({
         latex: answer,
-        action: submitted?.action?.trim() || exercise.action,
-        given: exercise.given,
         reference: exercise.reference,
       });
       rows.push({ index, ...checked });
@@ -329,6 +327,21 @@ export type ExamPreview = {
 export async function previewExam(brief: ProjectProposal, deliverable: string, exerciseIndex?: number): Promise<ExamPreview> {
   const exam = brief.exam;
   const selected = exerciseIndex == null ? null : exam?.exercises?.[exerciseIndex];
+  if (selected?.kind === "calculation" && selected.action?.trim()) {
+    const checked = await checkCommonMathAnswer({
+      latex: deliverable,
+      reference: selected.reference,
+    });
+    return {
+      error: null,
+      operational: checked.operational ? checked.note : null,
+      target: selected.target,
+      summary: checked.operational ? "" : checked.note,
+      steps: [],
+      requiredFound: checked.passed ? 1 : 0,
+      requiredTotal: 1,
+    };
+  }
   if (selected?.kind === "theory") {
     return {
       error: "This task is a written answer. It is graded when you submit the exam.",

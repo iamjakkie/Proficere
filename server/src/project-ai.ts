@@ -21,13 +21,13 @@ Each exercise is {ask, given, target, reference, action, kind}.
 kind is "calculation" or "theory".
 Rules:
 - Write 3 to 10 exercises. An introductory section, or a section of definitions and formulas, gets 8 to 10. A section that is one derivation gets 3 to 6.
-- Most exercises are calculations. The student types one expression in a math editor and runs one action. Include about two calculations that use a number the student already found. The rest stand alone.
+- Most exercises are calculations. The student writes the answer. The checker compares that answer and does not apply an action to it. Include about two calculations that use a number the student already found. The rest stand alone.
 - At most three exercises are theory. A theory item asks one direct question. Its action, target, and reference are empty.
 - ask is one or two sentences. It names the quantity in backticks, states the unit, and says what to find. It does not describe a workplace, a report, or a list of duties. It does not tell the student to write Python or SymPy.
 - Title is at most eight words and names the subject. It is not a task ("Audit a …", "Estimate a …").
 - given holds only that exercise's data, as assignments such as "distance = 12". Put every number the answer uses there or in ask. Values are numbers or short LaTeX, not the result. Do not copy numbers from the source. Do not turn a worked example into an exercise.
-- action is the CommonMath command: calculate, approximate, simplify, expand, differentiate x, solve for x, integrate x, integrate x from 0 to 1, limit x to 0, determinant, or inverse. The variable is one letter. Bounds are a number, pi, or one letter.
-- reference is the LaTeX result after given names are replaced and that action runs, such as 4 or \\frac{5}{6}. It stays on the server. ask and given must not contain it. Do not put a SymPy expression in reference.
+- action records the skill and is not shown or run. Use calculate, approximate, simplify, expand, differentiate x, solve for x, integrate x, integrate x from 0 to 1, limit x to 0, determinant, or inverse. The variable is one letter. Bounds are a number, pi, or one letter.
+- reference is the answer the student should write, in LaTeX, such as 4, 2x, or \\frac{5}{6}. It stays on the server. ask and given must not contain it. Do not put a SymPy expression in reference.
 - A later task that needs an earlier result tells the student to use the value they found. It does not print that value.
 - Cover the section with separate checks. Do not paste topic headings into a paragraph, and do not force every heading into one situation.
 - starter is blank.
@@ -118,7 +118,7 @@ export async function suggestProjectsWithAi(
   proposals = proposals.filter((item) => covers(item));
   if (proposals.length === 0) {
     const reminder =
-      "Return 3 to 10 exercises. Each ask is at most two sentences. Each calculation has a CommonMath action and a LaTeX result that is not written in the question. Do not write a scenario or a report.";
+      "Return 3 to 10 exercises. Each ask is at most two sentences. Each calculation has an action label and a LaTeX answer that is not written in the question. The student writes that answer. Do not write a scenario or a report.";
     const retry =
       packet && typeof packet === "object"
         ? { ...(packet as Record<string, unknown>), coverageFailure: reminder }
@@ -257,7 +257,7 @@ function coerceReview(parsed: unknown, brief: ProjectProposal): {
 }
 
 const DERIVATION_COVERAGE =
-  "CommonMath runs each expression and compares it with the stored value. A written answer is graded separately.";
+  "CommonMath compares the answer the student wrote with the stored answer. It does not solve the task. A written answer is graded separately.";
 
 export function taskScore(rows: { passed: boolean; operational: boolean }[]): { grade: string; passed: boolean; complete: boolean } {
   const correct = rows.filter((row) => row.passed && !row.operational).length;
@@ -414,7 +414,7 @@ function coerceProposal(value: unknown, index: number): ProjectProposal | null {
       {
         id: "derivation",
         statement: "Each assignment follows, and a required intermediate form appears before the final value.",
-        evidenceRequired: "The expression and the action that was run.",
+        evidenceRequired: "The answer written in the math editor.",
         method: "derivation",
         referenceExpression: null,
         tolerance: null,
