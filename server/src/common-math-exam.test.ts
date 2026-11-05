@@ -111,6 +111,24 @@ describe("common math exams", () => {
     }
   });
 
+  it("accepts an equivalent solution chain and rejects a wrong one", async () => {
+    const reference = String.raw`\bigl\lbrack1, -1\bigr\rbrack`;
+    const chain = String.raw`x^2-1=0\to x^2=1\to x=-1\lor x=1`;
+    const multiline = String.raw`\displaylines{x^2-1=0 \\ \to x^2=1 \\ \to x=-1\lor x=1}`;
+    const rows = String.raw`\displaylines{x^2-1=0 \\ x^2=1 \\ x=-1\lor x=1}`;
+    expect(sameLatex(chain, reference)).toBe(true);
+    expect(sameLatex(multiline, reference)).toBe(true);
+    expect(sameLatex(rows, reference)).toBe(true);
+    expect(sameLatex(String.raw`x=-1\lor x=1`, reference)).toBe(true);
+    expect(sameLatex(String.raw`x^2-1=0\to x=0\to x=-1\lor x=1`, reference)).toBe(false);
+    expect(sameLatex(String.raw`x^2-1=0\to x^2=4\to x=-2\lor x=2`, reference)).toBe(false);
+    expect(sameLatex(String.raw`x^2-1=0\to x^2=1\to x=1`, reference)).toBe(false);
+    expect(sameLatex(String.raw`x^2-1=0`, reference)).toBe(false);
+    const checked = await checkCommonMathAnswer({ latex: multiline, reference });
+    expect(checked).toEqual({ passed: true, operational: false, note: "Matches." });
+    expect(checked.note.includes("lbrack") || checked.note.includes("-1")).toBe(false);
+  });
+
   it("marks a wrong answer without quoting the key", async () => {
     const checked = await checkCommonMathAnswer({
       latex: "5",

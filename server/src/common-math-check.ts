@@ -95,20 +95,83 @@ function readableLatex(latex: string): string {
   return latex.replaceAll("\\differentialD", "\\mathrm{d}");
 }
 
-/** Mathematical equality. A matching decimal, a reordered list, and a true equation all count. */
+const CHAIN_BREAK = "\u0000";
+
+/** Steps of a solution chain, split on arrows and on rows of display math. */
+function chainSteps(latex: string): string[] {
+  let text = readableLatex(latex).trim();
+  const displayed = text.match(/^\\displaylines\s*\{([\s\S]*)\}\s*$/);
+  if (displayed?.[1]) text = displayed[1];
+  text = text
+    .replace(/\\\\(?:\[[^\]]*\])?/g, CHAIN_BREAK)
+    .replace(/\\(?:longrightarrow|rightarrow|Rightarrow|implies|to)\b/g, CHAIN_BREAK);
+  const steps = text
+    .split(CHAIN_BREAK)
+    .map((step) => step.trim())
+    .filter((step) => step.length > 0);
+  return steps.length > 0 ? steps : [text];
+}
+
+function expressionHead(expr: Expression): string | null {
+  const json: unknown = expr.json;
+  return Array.isArray(json) && typeof json[0] === "string" ? json[0] : null;
+}
+
+/** Solutions of an equation or a disjunction of equations, such as x=-1 or x=1. */
+function solutionSet(engine: ComputeEngine, latex: string): Expression | null {
+  let expr: Expression;
+  try {
+    expr = engine.parse(latex);
+  } catch {
+    return null;
+  }
+  if (!expr.isValid) return null;
+  try {
+    const solved = engine.box(["Solve", expr]).evaluate();
+    return listItems(solved) ? solved : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Every step has the same solutions, and those solutions are the stored answer. */
+function chainMatches(engine: ComputeEngine, steps: string[], reference: Expression): boolean {
+  const sets: Expression[] = [];
+  for (const step of steps) {
+    const set = solutionSet(engine, step);
+    if (!set) return false;
+    sets.push(set);
+  }
+  const first = sets[0];
+  if (!first || sets.some((set) => !sameExpression(set, first))) return false;
+  return sameExpression(first, reference);
+}
+
+/** Mathematical equality. A matching decimal, a reordered list, a true equation, and an equivalent solution chain all count. */
 export function sameLatex(leftLatex: string, rightLatex: string): boolean {
   const ce = new ComputeEngine();
-  let left: Expression;
+  const steps = chainSteps(leftLatex);
   let right: Expression;
   try {
-    left = ce.parse(readableLatex(leftLatex));
     right = ce.parse(readableLatex(rightLatex));
   } catch {
     return false;
   }
-  if (!left.isValid || !right.isValid) return false;
+  if (!right.isValid) return false;
+  if (steps.length > 1) return chainMatches(ce, steps, right);
+  let left: Expression;
+  try {
+    left = ce.parse(steps[0] ?? "");
+  } catch {
+    return false;
+  }
+  if (!left.isValid) return false;
   const stated = statedValue(left);
   if (equalSides(left)) return stated != null && sameExpression(stated, right);
+  if (expressionHead(left) === "Or") {
+    const solved = solutionSet(ce, steps[0] ?? "");
+    return solved != null && sameExpression(solved, right);
+  }
   return sameExpression(left, right);
 }
 
