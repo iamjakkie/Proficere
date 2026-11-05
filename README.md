@@ -65,7 +65,7 @@ Never put the key in frontend code, backups, or git.
 
 ## Calculations
 
-A new exam calculation is the answer you write in the CommonMath editor. Check and Submit compare that answer with the stored answer. Equivalent forms match, such as `12/3` and `4`. The editor does not apply an action such as `differentiate x` to what you typed. The stored answer is not shown.
+A new exam calculation is the answer you write in the CommonMath editor. Check and Submit compare that answer with the stored answer. Equivalent forms match, such as `2x`, `2*x`, and `x*2`. A derivative you write out, such as `d/dx x^2 = 2x`, matches when the statement is true and its value is the answer. The editor does not apply an action such as `differentiate x` to what you typed. The stored answer is not shown.
 
 An older exam that stores a SymPy script still uses that checker. Each line is a calculation, such as `relation = Eq(x, y + 1)`. SymPy's mathematical names are available. A name is the SymPy function when you call it, and a symbol when you write it on its own. `from sympy import Name` adds another SymPy name, including a one-letter name such as `N`.
 

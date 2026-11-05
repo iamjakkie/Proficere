@@ -48,8 +48,28 @@ describe("common math exams", () => {
   it("treats an equivalent result as the same value", () => {
     expect(sameLatex(String.raw`\frac{5}{6}`, String.raw`\frac{5}{6}`)).toBe(true);
     expect(sameLatex("4", String.raw`\frac{12}{3}`)).toBe(true);
+    expect(sameLatex("2*x", "2x")).toBe(true);
+    expect(sameLatex("x*2", "2x")).toBe(true);
+    expect(sameLatex("x+x", "2x")).toBe(true);
     expect(sameLatex(String.raw`\bigl\lbrack1, -1\bigr\rbrack`, String.raw`\bigl\lbrack-1, 1\bigr\rbrack`)).toBe(true);
     expect(sameLatex("4", "5")).toBe(false);
+    expect(sameLatex("x", "2x")).toBe(false);
+    expect(sameLatex("3x", "2x")).toBe(false);
+  });
+
+  it("accepts a true derivative statement and rejects a false one", () => {
+    expect(sameLatex(String.raw`\frac{d}{dx}x^{2}=2x`, "2x")).toBe(true);
+    expect(sameLatex(String.raw`\frac{d}{\differentialD x}x^2=2x`, "2x")).toBe(true);
+    expect(sameLatex("d/dx x^2 = 2x", "2x")).toBe(true);
+    expect(sameLatex(String.raw`2\cdot x`, "2x")).toBe(true);
+    expect(sameLatex(String.raw`x\cdot2`, "2x")).toBe(true);
+    expect(sameLatex(String.raw`\frac{d}{dx}x^{2}=2*x`, "2x")).toBe(true);
+    expect(sameLatex(String.raw`\frac{d}{dx}x^{2}=x*2`, "2x")).toBe(true);
+    expect(sameLatex(String.raw`\frac{d}{dx}x^{2}=3x`, "2x")).toBe(false);
+    expect(sameLatex(String.raw`\frac{d}{\differentialD x}x^2=3x`, "2x")).toBe(false);
+    expect(sameLatex(String.raw`\frac{d}{dx}x^{3}=2x`, "2x")).toBe(false);
+    expect(sameLatex(String.raw`\frac{d}{dx}x^{2}`, "2x")).toBe(false);
+    expect(sameLatex("5=5", "2x")).toBe(false);
   });
 
   it("grades the written answer and does not solve the task", async () => {
@@ -76,6 +96,19 @@ describe("common math exams", () => {
       reference: "2x",
     });
     expect(checked).toEqual({ passed: false, operational: false, note: "Does not match." });
+    const stated = await checkCommonMathAnswer({
+      latex: String.raw`\frac{d}{\differentialD x}x^2=2x`,
+      reference: "2x",
+    });
+    expect(stated).toEqual({ passed: true, operational: false, note: "Matches." });
+    expect(stated.note.includes("2x")).toBe(false);
+    for (const latex of ["x", "3x", String.raw`\frac{d}{dx}x^{2}=3x`]) {
+      expect(await checkCommonMathAnswer({ latex, reference: "2x" })).toEqual({
+        passed: false,
+        operational: false,
+        note: "Does not match.",
+      });
+    }
   });
 
   it("marks a wrong answer without quoting the key", async () => {

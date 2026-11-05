@@ -66,18 +66,49 @@ function sameExpression(left: Expression, right: Expression): boolean {
   return Math.abs(aNumber - bNumber) <= 1e-6 * scale;
 }
 
-/** Mathematical equality. A matching decimal and a reordered solution list both count. */
+function equalSides(expr: Expression): Expression[] | null {
+  const json: unknown = expr.json;
+  if (!Array.isArray(json) || json[0] !== "Equal" || json.length < 3) return null;
+  return json.slice(1).map((item) => expr.engine.box(item as Expression));
+}
+
+/**
+ * A written statement such as d/dx x^2 = 2x. The derivative the student wrote
+ * is evaluated so the two sides can be compared. A bare derivative is left alone.
+ */
+function statedValue(expr: Expression): Expression | null {
+  const sides = equalSides(expr);
+  if (!sides) return null;
+  let values: Expression[];
+  try {
+    values = sides.map((side) => side.evaluate());
+  } catch {
+    return null;
+  }
+  const first = values[0];
+  if (!first || values.some((value) => !sameExpression(value, first))) return null;
+  return first;
+}
+
+/** MathLive writes the differential as `\differentialD`, which the checker reads as d. */
+function readableLatex(latex: string): string {
+  return latex.replaceAll("\\differentialD", "\\mathrm{d}");
+}
+
+/** Mathematical equality. A matching decimal, a reordered list, and a true equation all count. */
 export function sameLatex(leftLatex: string, rightLatex: string): boolean {
   const ce = new ComputeEngine();
   let left: Expression;
   let right: Expression;
   try {
-    left = ce.parse(leftLatex);
-    right = ce.parse(rightLatex);
+    left = ce.parse(readableLatex(leftLatex));
+    right = ce.parse(readableLatex(rightLatex));
   } catch {
     return false;
   }
   if (!left.isValid || !right.isValid) return false;
+  const stated = statedValue(left);
+  if (equalSides(left)) return stated != null && sameExpression(stated, right);
   return sameExpression(left, right);
 }
 
