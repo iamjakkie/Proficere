@@ -165,6 +165,7 @@ export function WorkshopBoardPage() {
             <button className="btn" type="button" disabled={busy || !consent || !description.trim()} onClick={() => void plan()}>
               {busy ? "Planning…" : "Plan this project"}
             </button>
+            <p className="muted">Plan adds small TODO cards, one deliverable each. It does not replace cards already on the board.</p>
           </div>
         ) : (
           <p className="banner">Configure OpenRouter to enable AI. You can still add and move cards yourself.</p>

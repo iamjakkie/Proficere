@@ -1,10 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { examInputsArePresent, expressionIsClosed, taskScore, workbookShape } from "./project-ai.js";
+import { examInputsArePresent, expressionIsClosed, referenceIsPlugIn, taskScore, workbookShape } from "./project-ai.js";
 
 const checks = [
-  { ask: "The distance is 12 m and the time is 3 s. Assign `speed`.", given: ["distance = 12", "time = 3"], target: "speed", reference: "distance/time", kind: "calculation" },
-  { ask: "The speed stays constant for 5 s more. Assign `extra_distance`.", given: ["extra_time = 5"], target: "extra_distance", reference: "speed*extra_time", kind: "calculation" },
-  { ask: "Which repeated measurement would show the speed was not constant?", given: [], target: "", reference: "", kind: "theory" },
+  {
+    ask: "A cart is at 4 m when the clock starts and at 19 m after 3 s, moving at constant velocity. Where is it after 8 s? Assign `position` in metres.",
+    given: ["x0 = 4", "x1 = 19", "t1 = 3", "t = 8"],
+    target: "position",
+    reference: "x0 + (x1 - x0)/t1*t",
+    kind: "calculation",
+  },
+  {
+    ask: "The same cart then stops at a constant rate in 4 s. How far does it travel while stopping? Assign `stopping_distance` in metres.",
+    given: ["x0 = 4", "x1 = 19", "t1 = 3", "stop_time = 4"],
+    target: "stopping_distance",
+    reference: "((x1 - x0)/t1)*stop_time/2",
+    kind: "calculation",
+  },
+  {
+    ask: "Which later measurement would show that the velocity during the first 3 s was not constant?",
+    given: [],
+    target: "",
+    reference: "",
+    kind: "theory",
+  },
 ];
 
 describe("task score", () => {
@@ -45,9 +63,41 @@ describe("exam coverage", () => {
     ).toBe(false);
   });
 
-  it("accepts a short workbook of separate checks", () => {
+  it("accepts a short workbook of separate problems", () => {
     expect(workbookShape({ exercises: checks })).toBe(true);
     expect(workbookShape({ exercises: checks.map((item) => ({ ...item, kind: "theory", target: "", reference: "" })) })).toBe(false);
+  });
+
+  it("rejects an exam that is only single substitutions", () => {
+    expect(referenceIsPlugIn("distance/time")).toBe(true);
+    expect(referenceIsPlugIn("speed**2/radius")).toBe(true);
+    expect(referenceIsPlugIn("sqrt(speed**2/radius)")).toBe(true);
+    expect(referenceIsPlugIn("x0 + (x1 - x0)/t1*t")).toBe(false);
+    const plugs = [
+      {
+        ask: "The distance is 12 m and the time is 3 s. Assign `speed`.",
+        given: ["distance = 12", "time = 3"],
+        target: "speed",
+        reference: "distance/time",
+        kind: "calculation",
+      },
+      {
+        ask: "The speed stays constant for 5 s more. Assign `extra_distance`.",
+        given: ["extra_time = 5"],
+        target: "extra_distance",
+        reference: "speed*extra_time",
+        kind: "calculation",
+      },
+      {
+        ask: "Which measurement would show the speed was not constant?",
+        given: [],
+        target: "",
+        reference: "",
+        kind: "theory",
+      },
+    ];
+    expect(workbookShape({ exercises: plugs })).toBe(false);
+    expect(workbookShape({ exercises: [plugs[0], checks[0], checks[2]] })).toBe(true);
   });
 
   it("keeps a numeric answer only when the exam shows the inputs", () => {

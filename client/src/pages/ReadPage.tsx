@@ -393,16 +393,9 @@ export function ReadPage() {
     setPage(Math.min(last, Math.max(1, requested)));
   }
 
-  function openChapter(chapter: Chapter) {
-    const resume = resumePdfPage(chapter);
-    if (resume == null || pastExam(resume)) return;
-    setPage(resume);
-  }
-
   if (!book && !error) return <p>Opening PDF…</p>;
   if (!book) return <p className="banner danger">{error}</p>;
 
-  const currentChapter = chapterCovering(chapters, page);
   const pages = doc?.numPages ?? null;
   const spreadStart = spread ? pairStart(page) : page;
   const spreadEnd = spread && pages != null && spreadStart < pages ? spreadStart + 1 : spreadStart;
@@ -478,28 +471,6 @@ export function ReadPage() {
         <p className="banner">Attach a PDF on the book page before opening it here.</p>
       )}
       <div className="reader">
-        <aside className="reader-chapters">
-          <h2>Chapters</h2>
-          {chapters.length === 0 && <p className="muted">No chapters saved yet.</p>}
-          {chapters.map((chapter) => (
-            <button
-              key={chapter.id}
-              type="button"
-              className={chapter.id === currentChapter ? "reader-chapter current" : "reader-chapter"}
-              disabled={chapter.pdfPageStart == null}
-              onClick={() => openChapter(chapter)}
-            >
-              <span>
-                {chapter.number ? `${chapter.number}. ` : ""}
-                {chapter.title}
-              </span>
-              <span className="muted">
-                {chapter.pdfPageStart == null ? "page unknown" : `p. ${chapter.pdfPageStart}`}
-                {chapter.progressPercent > 0 ? ` · ${chapter.progressPercent}%` : ""}
-              </span>
-            </button>
-          ))}
-        </aside>
         <div className="reader-stage" ref={stageRef}>
           {book.libraryFilename && !doc && !error && <p className="reader-status">Opening PDF…</p>}
           <div className="reader-spread">

@@ -322,21 +322,32 @@ export function registerShelfRoutes(app: Express, db: Db): void {
       }
       requireConsent(body.consent);
       const project = updateWorkshopProject(db, req.params.id, { description: body.description });
-      const plan = await chatJson(
-        WorkshopPlanSchema,
-        [
-          "Plan a personal learning project as kanban cards.",
-          'Return JSON {"cards":[{"title":"short name","detail":"one or two sentences","column":"todo"}]}',
-          "column must be todo, in_progress, test, or done.",
-          "Return between 3 and 8 cards. Do not invent credentials, downloads, or accounts.",
-        ].join(" "),
-        [
-          `Title: ${project.title}`,
-          `Category: ${project.category ?? "none"}`,
-          `Tags: ${project.tags.join(", ") || "none"}`,
-          `Description:\n${body.description}`,
-        ].join("\n"),
-      );
+      const system = [
+        "Split a project into kanban tasks. Return JSON {\"cards\":[{\"title\":\"one imperative task\",\"detail\":\"one sentence, or empty\",\"column\":\"todo\"}]}.",
+        "Each card is one deliverable that can move to Done on its own. A milestone with four tasks is four cards.",
+        "A card is not a crate, a subsystem, or a campaign. Do not put the workspace and the conventions note on one card.",
+        "Title is one step, at most 120 characters, with no second sentence. Detail is one sentence of at most 180 characters saying how you know it is done, or empty.",
+        "Every column is todo. Return 4 to 16 cards, in the order the work is done. Do not pad, and do not merge later work into module cards.",
+        "Size, not content to copy: Create the cargo workspace with the five crates and pick the linear-algebra crate. Write a one-page conventions note for frames, quaternions, units, gravity, and timestamps. Set up CI for fmt, clippy, tests, and a seeded RNG. Write the scope paragraph into the README.",
+        "Do not invent credentials, downloads, or accounts.",
+      ].join(" ");
+      const packet = [
+        `Title: ${project.title}`,
+        `Category: ${project.category ?? "none"}`,
+        `Tags: ${project.tags.join(", ") || "none"}`,
+        `Description:\n${body.description}`,
+      ].join("\n");
+      let plan;
+      try {
+        plan = await chatJson(WorkshopPlanSchema, system, packet);
+      } catch (err) {
+        if (!(err instanceof AppError) || err.code !== "validation") throw err;
+        plan = await chatJson(
+          WorkshopPlanSchema,
+          system,
+          `${packet}\n\nThe previous cards were rejected: ${err.message} Shorten every detail to one sentence under 180 characters and keep each title a single step.`,
+        );
+      }
       const cards = addPlannedCards(db, project.id, plan);
       res.json({ project, cards: listWorkshopCards(db, project.id), added: cards.length });
     }),

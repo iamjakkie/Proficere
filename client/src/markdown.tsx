@@ -2,22 +2,54 @@ import type { ReactNode } from "react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
-const FORMULA =
-  /[A-Za-z][A-Za-z0-9_]*\s*=\s*-?\s*(?:[A-Za-z0-9_.]+|\([^()\n]+\))(?:\s*[+\-*/^]\s*-?\s*(?:[A-Za-z0-9_.]+|\([^()\n]+\)))*/g;
-
-function unwrap(value: string): string {
-  return value.trim().replace(/^\((.*)\)$/, "$1").trim();
+function protectedSpans(): RegExp {
+  return /(`[^`]+`|\$\$[\s\S]+?\$\$|\$(?:\\.|[^$\n])+\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\))/g;
 }
 
-function toLatex(expr: string): string {
-  const trimmed = expr.trim();
-  const frac = trimmed.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(.+?)\s*\/\s*(.+)$/);
-  if (!frac) return trimmed;
-  return `${frac[1]} = \\frac{${unwrap(frac[2])}}{${unwrap(frac[3])}}`;
+function equations(): RegExp {
+  return /[A-Za-z][A-Za-z0-9_]*(?:\([^()\n]*\))?\s*=\s*(?:[A-Za-z0-9_.]+|\([^()\n]+\))(?:\s*[+\-*/^]\s*(?:[A-Za-z0-9_.]+|\([^()\n]+\)))*/g;
+}
+
+function powers(): RegExp {
+  return /(?:[A-Za-z][A-Za-z0-9]*\s*\/\s*)?[A-Za-z][A-Za-z0-9]*\s*\^\s*-?\d+(?:\.\d+)?/g;
+}
+
+function atom(expr: string): string {
+  return expr
+    .replace(/sqrt\(([^()]+)\)/g, "\\sqrt{$1}")
+    .replace(/(^|[^A-Za-z])pi(?![A-Za-z])/g, "$1\\pi")
+    .replace(/\*\*/g, "^")
+    .replace(/\*/g, " ")
+    .replace(/\^\s*(-?(?:\d+(?:\.\d+)?|[A-Za-z][A-Za-z0-9]*))/g, "^{$1}")
+    .replace(/_([A-Za-z0-9]+)/g, "_{$1}")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function exprTex(expr: string): string {
+  const trimmed = expr.trim().replace(/\s+/g, " ");
+  const frac = trimmed.match(
+    /^([A-Za-z][A-Za-z0-9_]*(?:\([^)]*\))?)\s*=\s*([A-Za-z0-9_.()]+)\s*\/\s*([A-Za-z0-9_.()]+)$/,
+  );
+  if (frac && !/[*+^]/.test(`${frac[2]}${frac[3]}`)) {
+    return `${atom(frac[1])} = \\frac{${atom(frac[2])}}{${atom(frac[3])}}`;
+  }
+  return atom(trimmed);
+}
+
+function promotePiece(text: string): string {
+  const withEquations = text.replace(equations(), (match) => `$${exprTex(match)}$`);
+  return withEquations
+    .split(/(\$[^$\n]+\$)/g)
+    .map((part, index) => (index % 2 === 1 ? part : part.replace(powers(), (match) => `$${exprTex(match)}$`)))
+    .join("");
 }
 
 function promoteFormulas(text: string): string {
-  return text.replace(FORMULA, (match) => `$${toLatex(match)}$`);
+  return text
+    .split(protectedSpans())
+    .map((part, index) => (index % 2 === 1 ? part : promotePiece(part)))
+    .join("");
 }
 
 function MathTex({ tex, display = false }: { tex: string; display?: boolean }) {
@@ -171,6 +203,5 @@ function blocks(source: string): ReactNode[] {
 }
 
 export function Markdown({ source }: { source: string }) {
-  const text = /[$`]|\\\(|\\\[/.test(source) ? source : promoteFormulas(source);
-  return <div className="md">{blocks(text)}</div>;
+  return <div className="md">{blocks(promoteFormulas(source))}</div>;
 }

@@ -4,6 +4,7 @@ import type { BookCategory, Dashboard } from "@progress-island/shared";
 import { categoryColorCss } from "@progress-island/shared";
 import { api } from "../api";
 import { FieldView } from "../FieldView";
+import { HomeCharts } from "../HomeCharts";
 
 export function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
@@ -45,6 +46,7 @@ export function DashboardPage() {
           Continue {resume.title}
         </Link>
       )}
+      <HomeCharts week={data.week} pace={data.pace} />
       {!data.ai.configured && <p className="field-ai">Configure OpenRouter to enable AI. Tracking still works.</p>}
       <details className="field-editor">
         <summary>Categories</summary>

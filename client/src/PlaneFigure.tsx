@@ -1,14 +1,31 @@
 import { useId } from "react";
 import { planePoints, type PlanePoint } from "@progress-island/shared";
 
+const vectorStrokes = ["var(--accent)", "var(--moss)", "var(--sea-deep)", "var(--sand)"];
+
 export function PlaneFigure({ given }: { given: string[] }) {
-  const markerId = useId().replace(/:/g, "");
   const points = planePoints(given);
-  if (points.length < 2) return null;
+  if (points.length === 0) return null;
   const byName = new Map(points.map((point) => [point.name, point]));
-  const origin = byName.get("C") ?? points[0];
+  const origin = byName.get("C");
   const facing = byName.get("A");
   const goal = byName.get("B");
+  if (origin && facing && goal) return <CartFigure points={points} origin={origin} facing={facing} goal={goal} />;
+  return <VectorFigure points={points} />;
+}
+
+function CartFigure({
+  points,
+  origin,
+  facing,
+  goal,
+}: {
+  points: PlanePoint[];
+  origin: PlanePoint;
+  facing: PlanePoint;
+  goal: PlanePoint;
+}) {
+  const markerId = useId().replace(/:/g, "");
   const frame = frameOf(points, origin, facing, goal);
   const to = (point: PlanePoint) => frame.project(point.x, point.y);
   const turn = origin && facing && goal ? arc(origin, facing, goal, frame) : null;
@@ -47,6 +64,56 @@ export function PlaneFigure({ given }: { given: string[] }) {
         The arrow is the direction the cart faces at the start. The arc is the smaller turn until it faces B. The green
         segment is the straight path it then travels.
       </figcaption>
+    </figure>
+  );
+}
+
+function VectorFigure({ points }: { points: PlanePoint[] }) {
+  const markerBase = useId().replace(/:/g, "");
+  const frame = frameOf([{ name: "origin", x: 0, y: 0 }, ...points]);
+  const start = frame.project(0, 0);
+  return (
+    <figure className="exam-figure">
+      <svg viewBox={`0 0 ${frame.width} ${frame.height}`} role="img" aria-label="Vectors drawn from the origin.">
+        <title>Vectors drawn from the origin.</title>
+        <defs>
+          {points.map((point, index) => (
+            <marker
+              key={point.name}
+              id={`${markerBase}-${index}`}
+              markerWidth="8"
+              markerHeight="8"
+              refX="7"
+              refY="4"
+              orient="auto"
+            >
+              <path d="M 0 0 L 8 4 L 0 8 z" fill={vectorStrokes[index % vectorStrokes.length]} />
+            </marker>
+          ))}
+        </defs>
+        <circle cx={start.x} cy={start.y} r="3.5" fill="var(--muted)" />
+        {points.map((point, index) => {
+          const at = frame.project(point.x, point.y);
+          const stroke = vectorStrokes[index % vectorStrokes.length];
+          return (
+            <g key={point.name}>
+              <line
+                x1={start.x}
+                y1={start.y}
+                x2={at.x}
+                y2={at.y}
+                stroke={stroke}
+                strokeWidth="3"
+                markerEnd={`url(#${markerBase}-${index})`}
+              />
+              <text x={at.x + 8} y={at.y - 8} fill={stroke} fontSize="16">
+                {point.name}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <figcaption>Each arrow is that quantity drawn from the origin.</figcaption>
     </figure>
   );
 }

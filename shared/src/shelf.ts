@@ -104,18 +104,23 @@ export const WorkshopCardSchema = z.object({
 });
 export type WorkshopCard = z.infer<typeof WorkshopCardSchema>;
 
+/** A card that continues after a sentence is a module, not one kanban step. */
+function oneStep(value: string): boolean {
+  return !/[.!?]\s+\S/.test(value);
+}
+
 /** Cards the model may propose. Invalid shapes are rejected before anything is stored. */
 export const WorkshopPlanSchema = z.object({
   cards: z
     .array(
       z.object({
-        title: z.string().trim().min(1).max(140),
-        detail: z.string().trim().max(2000).optional().default(""),
-        column: WorkshopColumnSchema.optional().default("todo"),
+        title: z.string().trim().min(1).max(120).refine(oneStep, "A card is one step."),
+        detail: z.string().trim().max(180).refine(oneStep, "The detail is one sentence.").optional().default(""),
+        column: z.literal("todo").optional().default("todo"),
       }),
     )
-    .min(1)
-    .max(12),
+    .min(4)
+    .max(16),
 });
 export type WorkshopPlan = z.infer<typeof WorkshopPlanSchema>;
 

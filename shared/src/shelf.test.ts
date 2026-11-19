@@ -202,9 +202,32 @@ describe("shelf helpers", () => {
     expect(priorityRank("high")).toBeLessThan(priorityRank("none"));
   });
 
-  it("rejects a workshop plan that is not a card list", () => {
+  it("rejects a workshop plan that is not a list of single steps", () => {
+    const step = (title: string, detail = "") => ({ title, detail, column: "todo" as const });
     expect(WorkshopPlanSchema.safeParse({ cards: [] }).success).toBe(false);
-    expect(WorkshopPlanSchema.safeParse({ cards: [{ title: "Sketch the board" }] }).success).toBe(true);
-    expect(WorkshopPlanSchema.safeParse({ cards: [{ title: "X", column: "archived" }] }).success).toBe(false);
+    expect(WorkshopPlanSchema.safeParse({ cards: [step("Sketch the board")] }).success).toBe(false);
+    expect(
+      WorkshopPlanSchema.safeParse({
+        cards: [
+          step("Create the cargo workspace and pick the linear-algebra crate"),
+          step("Write a one-page conventions note", "Done when frames, units, gravity, and timestamps are named."),
+          step("Set up CI for fmt, clippy, tests, and a seeded RNG"),
+          step("Write the scope paragraph into the README"),
+        ],
+      }).success,
+    ).toBe(true);
+    expect(WorkshopPlanSchema.safeParse({ cards: [step("X", ""), step("Y"), step("Z"), step("W"), { title: "V", column: "done" }] }).success).toBe(
+      false,
+    );
+    expect(
+      WorkshopPlanSchema.safeParse({
+        cards: [
+          step("Build the filter", "Propagate the state. Then update from every sensor. Then run the campaign."),
+          step("Write a note"),
+          step("Set up CI"),
+          step("Write the README"),
+        ],
+      }).success,
+    ).toBe(false);
   });
 });

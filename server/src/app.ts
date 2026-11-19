@@ -22,6 +22,7 @@ import {
   validateVerificationPlan,
 } from "@progress-island/shared";
 import { aiConfigured, config } from "./config.js";
+import { homeCharts } from "./week.js";
 import { registerShelfRoutes } from "./shelf-routes.js";
 import { activeCourse, islandMarkers } from "./shelf-store.js";
 import { generateMilestoneExam, readingExamFailure, scheduleReadingFollowups } from "./reading-followup.js";
@@ -341,6 +342,7 @@ export function createApp(db: Db): Express {
       markers: islandMarkers(db),
       activeCourse: activeCourse(db),
       field: fieldResources(db),
+      ...homeCharts(db),
     });
   });
 

@@ -715,28 +715,49 @@ function ExamData({ given, heading = true }: { given: string[] | undefined; head
     <div className="stack">
       {heading ? <h3>Data</h3> : null}
       {given.map((item) => (
-        <Markdown key={item} source={`\\[${givenTex(item)}\\]`} />
+        <Markdown key={item} source={givenSource(item)} />
       ))}
     </div>
   );
 }
 
-function givenTex(item: string): string {
+function givenSource(item: string): string {
   const eq = item.indexOf("=");
-  if (eq <= 0) return scalarTex(item);
-  const name = item.slice(0, eq).trim() === "omega" ? "\\omega" : item.slice(0, eq).trim();
+  if (eq <= 0) return `\\[${mathToken(item)}\\]`;
+  const name = item.slice(0, eq).trim();
   const rhs = item.slice(eq + 1).trim();
-  const column = rhs.match(/^Matrix\(\[\s*([^[\],]+)\s*,\s*([^[\]]+)\s*\]\)$/);
-  const body = column ? `\\begin{bmatrix} ${scalarTex(column[1])} \\\\ ${scalarTex(column[2])} \\end{bmatrix}` : scalarTex(rhs);
-  return `${name} = ${body}`;
+  if (isProse(rhs)) return `$${mathToken(name)}$ = ${rhs}`;
+  return `\\[${mathToken(name)} = ${expressionTex(rhs)}\\]`;
 }
 
-function scalarTex(expr: string): string {
-  return expr
-    .trim()
+function isProse(rhs: string): boolean {
+  return /\b(?:result|from|exercise|your|the|and|with|found)\b/i.test(rhs);
+}
+
+function expressionTex(rhs: string): string {
+  const trimmed = rhs.trim();
+  if (trimmed.includes("\\begin{") || trimmed.startsWith("\\")) return trimmed;
+  const vector = trimmed.match(/^Matrix\(\[\s*([^[\]]*?)\s*\]\)$/);
+  if (vector) {
+    const cells = vector[1].split(",").map((cell) => mathToken(cell)).filter(Boolean);
+    if (cells.length >= 2) return `\\begin{bmatrix} ${cells.join(" \\\\ ")} \\end{bmatrix}`;
+  }
+  return mathToken(trimmed);
+}
+
+function mathToken(expr: string): string {
+  const trimmed = expr.trim();
+  if (trimmed === "omega") return "\\omega";
+  if (trimmed.startsWith("\\")) return trimmed;
+  return trimmed
     .replace(/sqrt\(([^()]+)\)/g, "\\sqrt{$1}")
     .replace(/(^|[^A-Za-z])pi(?![A-Za-z])/g, "$1\\pi")
-    .replace(/\*/g, "");
+    .replace(/\*\*/g, "^")
+    .replace(/\*/g, " ")
+    .replace(/\^\s*(-?(?:\d+(?:\.\d+)?|[A-Za-z][A-Za-z0-9]*))/g, "^{$1}")
+    .replace(/_([A-Za-z0-9]+)/g, "_{$1}")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function SourceLinks({ sources }: { sources: ProjectProposal["sources"] }) {

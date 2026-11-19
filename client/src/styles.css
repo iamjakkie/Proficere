@@ -766,7 +766,7 @@ body:has(.field-page) {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 118px 28px 88px;
+  padding: 118px 28px 188px;
 }
 
 .field-fit {
@@ -931,16 +931,184 @@ body:has(.field-page) {
   position: fixed;
   z-index: 4;
   left: 16px;
-  bottom: 16px;
+  bottom: 188px;
   margin: 0;
   padding: 8px 10px;
   border-radius: 10px;
-  max-width: 280px;
+  max-width: 220px;
+}
+
+.field-analytics {
+  position: fixed;
+  z-index: 5;
+  left: 16px;
+  right: 348px;
+  bottom: 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.chart-card {
+  min-width: 0;
+  padding: 8px 10px 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  color: var(--ink);
+}
+
+.chart-label,
+.chart-card > p,
+.chart-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.chart-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.chart-frame {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 6px;
+  height: 72px;
+  min-height: 72px;
+  max-height: 72px;
+  margin: 6px 0 4px;
+  overflow: hidden;
+}
+
+.chart-frame > * {
+  min-height: 0;
+  height: 72px;
+  max-height: 72px;
+}
+
+.y-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.week-bars {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  align-items: end;
+  gap: 5px;
+  height: 100%;
+}
+
+.week-bars span {
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.week-bars i {
+  display: block;
+  width: 100%;
+  min-height: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--moss);
+}
+
+.chart-frame svg {
+  display: block;
+  width: 100%;
+  height: 72px;
+  max-height: 72px;
+}
+
+.chart-empty {
+  align-self: center;
+}
+
+.book-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.book-legend li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.book-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.book-legend span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+}
+
+.book-legend b {
+  color: var(--ink);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.month-days {
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: 3px;
+  height: 72px;
+  margin: 6px 0 4px;
+  align-content: center;
+}
+
+.month-days i {
+  display: block;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.month-days i.on {
+  background: var(--moss);
+}
+
+@media (max-width: 1100px) {
+  .field-analytics {
+    right: 16px;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .field-frame {
+    padding-bottom: 320px;
+  }
+
+  .field-editor {
+    bottom: auto;
+    top: 72px;
+  }
 }
 
 .field-editor {
   position: fixed;
-  z-index: 4;
+  z-index: 7;
   right: 16px;
   bottom: 16px;
   width: min(320px, calc(100vw - 32px));
@@ -1123,48 +1291,14 @@ body:has(.field-page) {
 }
 
 .reader {
-  display: grid;
-  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
-  gap: 12px;
+  display: flex;
   flex: 1;
   min-height: 0;
 }
 
-.reader-chapters {
-  overflow: auto;
-  padding-right: 4px;
-}
-
-.reader-chapters h2 {
-  margin: 0 0 8px;
-  font-size: 1rem;
-}
-
-.reader-chapter {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  margin: 0 0 6px;
-  padding: 8px 10px;
-  text-align: left;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--card);
-}
-
-.reader-chapter.current {
-  border-color: var(--moss);
-  background: #1a2c22;
-}
-
-.reader-chapter:disabled {
-  opacity: 0.72;
-  cursor: default;
-}
-
 .reader-stage {
+  flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   background: #243028;
@@ -1199,13 +1333,6 @@ body:has(.field-page) {
   }
   .outline-row {
     grid-template-columns: 1fr 1fr;
-  }
-  .reader {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 140px) minmax(0, 1fr);
-  }
-  .reader-chapters {
-    max-height: none;
   }
   .book-row {
     grid-template-columns: 28px auto minmax(0, 1fr) minmax(96px, 120px) 72px 72px;

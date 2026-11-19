@@ -282,5 +282,28 @@ export const DashboardSchema = z.object({
   markers: z.array(IslandMarkerSchema),
   activeCourse: ActiveCourseSchema.nullable(),
   field: z.array(FieldResourceSchema),
+  week: z.object({
+    days: z.array(z.object({ date: z.string(), pages: z.number().int() })).length(7),
+    pages: z.number().int(),
+    activeDays: z.number().int(),
+    exams: z.number().int(),
+    passed: z.number().int(),
+  }),
+  pace: z.object({
+    books: z
+      .array(
+        z.object({
+          title: z.string(),
+          gained: z.number().int(),
+          points: z.array(z.number().int()).length(28),
+        }),
+      )
+      .max(3),
+    days: z.array(z.object({ date: z.string(), active: z.boolean() })).length(28),
+    activeDays: z.number().int(),
+    scores: z
+      .array(z.object({ date: z.string(), score: z.number().int(), total: z.number().int() }))
+      .max(8),
+  }),
 });
 export type Dashboard = z.infer<typeof DashboardSchema>;
