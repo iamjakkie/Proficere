@@ -3,6 +3,8 @@ import {
   articleSegments,
   bookSegments,
   cleanPriority,
+  compareFieldItems,
+  courseProvider,
   courseSegments,
   exerciseHitsFromJson,
   fieldFigure,
@@ -204,12 +206,35 @@ describe("shelf helpers", () => {
     expect(fieldFigure("article", articleSegments(40))).toBe("40%");
     expect(sharePercent([1, 0.5, 0, 0.4])).toBe(48);
     expect(sharePercent([])).toBe(0);
+    const order = [
+      { title: "Late", priority: "top" as const, segments: [0.2] },
+      { title: "Done none", priority: "none" as const, segments: [1] },
+      { title: "Done top", priority: "top" as const, segments: [1] },
+      { title: "Halfway", priority: "high" as const, segments: [1, 0] },
+    ].sort(compareFieldItems);
+    expect(order.map((item) => item.title)).toEqual(["Done top", "Done none", "Halfway", "Late"]);
     expect(workshopSegments([{ column: "done" }, { column: "todo" }, { column: "test" }])).toEqual([1, 0, 0]);
     expect(fieldFigure("workshop", [1, 0, 0])).toBe("1/3");
     expect(cleanPriority("top")).toBe("top");
     expect(cleanPriority("later")).toBe("none");
     expect(priorityRank("top")).toBeLessThan(priorityRank("high"));
     expect(priorityRank("high")).toBeLessThan(priorityRank("none"));
+  });
+
+  it("names a course from its link", () => {
+    expect(courseProvider("https://www.udemy.com/course/multithreading_parta")).toEqual({
+      id: "udemy",
+      label: "Udemy",
+    });
+    expect(courseProvider("https://www.coursera.org/specializations/rust").id).toBe("coursera");
+    expect(courseProvider("https://www.udacity.com/course/sensor-fusion-engineer-nanodegree--nd313").label).toBe(
+      "Udacity",
+    );
+    expect(courseProvider("https://web.mit.edu/18.06/www/").label).toBe("MIT");
+    expect(courseProvider("https://ocw.mit.edu/courses/16-346/").label).toBe("MIT");
+    expect(courseProvider("https://edgeneers.thinkautonomous.ai/spaces/17030930").label).toBe("Think Autonomous");
+    expect(courseProvider("https://www.steppeschool.com/courses/stm32").label).toBe("Steppe School");
+    expect(courseProvider("not a url")).toEqual({ id: "link", label: "Course" });
   });
 
   it("rejects a workshop plan that is not a list of single steps", () => {

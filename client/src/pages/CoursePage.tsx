@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type { Course, CourseLesson } from "@progress-island/shared";
-import { hasPublicSyllabus, parseLessonList } from "@progress-island/shared";
+import { courseProvider, hasPublicSyllabus, parseLessonList } from "@progress-island/shared";
 import { api } from "../api";
 
 export function CoursePage() {
@@ -111,6 +111,9 @@ export function CoursePage() {
       </p>
       <section className="card course-shelf">
         <h1>{course.title}</h1>
+        <p>
+          <span className="source-tag">{courseProvider(course.url).label}</span>
+        </p>
         <p className="row-actions">
           <a className="btn primary" href={course.url} target="_blank" rel="noreferrer">
             Open

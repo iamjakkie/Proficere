@@ -2,6 +2,7 @@ import {
   articleSegments,
   bookSegments,
   cleanPriority,
+  courseProvider,
   courseSegments,
   growthForBook,
   workshopSegments,
@@ -30,6 +31,8 @@ export function fieldResources(db: Db): FieldResource[] {
       category: assigned(book.identifiers.category?.trim() || null, ids),
       href: book.libraryFilename ? `/books/${book.id}/read` : `/books/${book.id}`,
       priority: cleanPriority(book.identifiers.priority),
+      provider: null,
+      providerLabel: null,
       segments: bookSegments(chapters, growthForBook(chapters, book.identifiers)),
     });
   }
@@ -43,12 +46,15 @@ export function fieldResources(db: Db): FieldResource[] {
       category: assigned(article.category, ids),
       href: article.libraryFilename ? `/articles/${article.id}/read` : `/articles/${article.id}`,
       priority: article.priority,
+      provider: null,
+      providerLabel: null,
       segments: articleSegments(article.progressPercent),
     });
   }
 
   for (const course of listCourses(db)) {
     const lessons = listLessons(db, course.id);
+    const provider = courseProvider(course.url);
     resources.push({
       id: course.id,
       kind: "course",
@@ -56,6 +62,8 @@ export function fieldResources(db: Db): FieldResource[] {
       category: assigned(course.category, ids),
       href: `/courses/${course.id}`,
       priority: course.priority,
+      provider: provider.id,
+      providerLabel: provider.label,
       segments: courseSegments(lessons),
     });
   }
@@ -69,6 +77,8 @@ export function fieldResources(db: Db): FieldResource[] {
       category: assigned(project.category, ids),
       href: `/workshop/${project.id}`,
       priority: project.priority,
+      provider: null,
+      providerLabel: null,
       segments: workshopSegments(cards),
     });
   }

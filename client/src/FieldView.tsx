@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { BookCategory, FieldKind, FieldResource, Priority } from "@progress-island/shared";
-import { bookCategory, categoryColorCss, fieldFigure, priorityRank, sharePercent } from "@progress-island/shared";
+import { bookCategory, categoryColorCss, compareFieldItems, fieldFigure, sharePercent } from "@progress-island/shared";
+import { KindMark } from "./KindMark";
 
 type Group = {
   id: string;
@@ -46,9 +47,7 @@ function groupsFor(resources: FieldResource[], categories: BookCategory[]): Grou
       id: category.id,
       label: category.label,
       color: categoryColorCss(category.color),
-      items: (byId.get(category.id) ?? []).slice().sort(
-        (a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.title.localeCompare(b.title),
-      ),
+      items: (byId.get(category.id) ?? []).slice().sort(compareFieldItems),
     }));
 }
 
@@ -64,6 +63,21 @@ function Meter({ pct, color }: { pct: number; color: string }) {
 
 function SegmentBar({ segments, color }: { segments: number[]; color: string }) {
   const cells = segments.length ? segments : [0];
+  if (cells.length > 28) {
+    const stops = cells
+      .map((fill, index) => {
+        const start = (index / cells.length) * 100;
+        const painted = ((index + fill) / cells.length) * 100;
+        const end = ((index + 1) / cells.length) * 100;
+        return `${color} ${start}% ${painted}%, transparent ${painted}% ${end}%`;
+      })
+      .join(", ");
+    return (
+      <div className="hp hp-dense" aria-hidden="true">
+        <span className="field-fill hp-span" style={{ background: `linear-gradient(to right, ${stops})` }} />
+      </div>
+    );
+  }
   return (
     <div className="hp" aria-hidden="true">
       {cells.map((fill, index) => (
@@ -200,6 +214,7 @@ export function FieldView({
                               onBlur={() => setTip((current) => (current?.item.id === item.id ? null : current))}
                             >
                               <PriorityMark priority={item.priority} color={group.color} />
+                              <KindMark kind={item.kind} provider={item.provider} label={item.providerLabel} />
                               <span className="field-title">{item.title}</span>
                               <ResourceBar item={item} color={group.color} />
                               <span className="field-figure">{figure}</span>
@@ -219,7 +234,8 @@ export function FieldView({
         <div className="field-card" style={{ left: tip.x, top: tip.y }}>
           <strong>{tip.item.title}</strong>
           <p>
-            {KIND_LABEL[tip.item.kind]} · {tip.category}
+            {KIND_LABEL[tip.item.kind]}
+            {tip.item.providerLabel ? ` · ${tip.item.providerLabel}` : ""} · {tip.category}
             {tip.item.priority === "none" ? "" : tip.item.priority === "top" ? " · Top" : " · High"} ·{" "}
             {fieldFigure(tip.item.kind, tip.item.segments)}
           </p>

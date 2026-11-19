@@ -656,6 +656,9 @@ export const FieldResourceSchema = z.object({
   category: z.string().nullable(),
   href: z.string(),
   priority: PrioritySchema,
+  /** Course host, read from the course URL. Null for a book, an article, or a workshop. */
+  provider: z.string().nullable(),
+  providerLabel: z.string().nullable(),
   /** 0–1 per chapter, lesson, or workshop task. An article is one segment. */
   segments: z.array(z.number().min(0).max(1)),
 });
@@ -701,6 +704,52 @@ export function sharePercent(segments: number[]): number {
   if (!segments.length) return 0;
   const done = segments.reduce((sum, fill) => sum + fill, 0);
   return Math.round((done / segments.length) * 100);
+}
+
+/** Highest progress first. Equal progress keeps top priority ahead of high, then title. */
+export function compareFieldItems(
+  a: { title: string; priority: Priority; segments: number[] },
+  b: { title: string; priority: Priority; segments: number[] },
+): number {
+  return (
+    sharePercent(b.segments) - sharePercent(a.segments) ||
+    priorityRank(a.priority) - priorityRank(b.priority) ||
+    a.title.localeCompare(b.title)
+  );
+}
+
+const COURSE_HOSTS: { id: string; label: string; host: string }[] = [
+  { id: "udemy", label: "Udemy", host: "udemy.com" },
+  { id: "coursera", label: "Coursera", host: "coursera.org" },
+  { id: "udacity", label: "Udacity", host: "udacity.com" },
+  { id: "mit", label: "MIT", host: "mit.edu" },
+  { id: "edx", label: "edX", host: "edx.org" },
+  { id: "youtube", label: "YouTube", host: "youtube.com" },
+  { id: "youtube", label: "YouTube", host: "youtu.be" },
+  { id: "khan", label: "Khan Academy", host: "khanacademy.org" },
+  { id: "think-autonomous", label: "Think Autonomous", host: "thinkautonomous.ai" },
+  { id: "steppe", label: "Steppe School", host: "steppeschool.com" },
+  { id: "aamasterclass", label: "AA Masterclass", host: "aamasterclass.org" },
+  { id: "futurelearn", label: "FutureLearn", host: "futurelearn.com" },
+  { id: "pluralsight", label: "Pluralsight", host: "pluralsight.com" },
+  { id: "linkedin", label: "LinkedIn", host: "linkedin.com" },
+  { id: "skillshare", label: "Skillshare", host: "skillshare.com" },
+  { id: "datacamp", label: "DataCamp", host: "datacamp.com" },
+];
+
+/** The school or site named by a course link. The URL already stored on the course is the only input. */
+export function courseProvider(url: string): { id: string; label: string } {
+  let host = "";
+  try {
+    host = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return { id: "link", label: "Course" };
+  }
+  const known = COURSE_HOSTS.find((item) => host === item.host || host.endsWith(`.${item.host}`));
+  if (known) return { id: known.id, label: known.label };
+  const name = host.split(".").slice(-2, -1)[0] || host;
+  const label = name.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  return { id: "link", label: label || "Course" };
 }
 
 export function fieldFigure(kind: FieldKind, segments: number[]): string {

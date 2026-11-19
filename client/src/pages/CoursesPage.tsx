@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { BookCategory, Course, Priority } from "@progress-island/shared";
-import { courseraTarget, ocwLectureNotesUrl, udemyCourseSlug } from "@progress-island/shared";
+import { courseProvider, courseraTarget, ocwLectureNotesUrl, udemyCourseSlug } from "@progress-island/shared";
 import { api } from "../api";
 import { CategorySelect } from "../CategorySelect";
 import { PrioritySelect } from "../PrioritySelect";
@@ -122,6 +122,7 @@ export function CoursesPage() {
             {courses.map((course) => (
               <li key={course.id}>
                 <Link to={`/courses/${course.id}`}>{course.title}</Link>
+                <span className="source-tag">{courseProvider(course.url).label}</span>
                 <CategorySelect
                   label={`Category for ${course.title}`}
                   categories={categories}

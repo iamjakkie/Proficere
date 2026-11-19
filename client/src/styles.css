@@ -803,11 +803,24 @@ body:has(.field-page) {
 
 .field-group a {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1.4fr) minmax(96px, 1fr) 3.4rem;
+  grid-template-columns: 14px 16px minmax(0, 1.4fr) minmax(96px, 1fr) 3.4rem;
   gap: 10px;
   align-items: center;
   color: inherit;
   text-decoration: none;
+}
+
+.kind-mark {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  color: var(--ink);
+}
+
+.kind-mark svg {
+  display: block;
+  width: 16px;
+  height: 16px;
 }
 
 .priority-mark {
@@ -853,12 +866,21 @@ body:has(.field-page) {
 
 .field-page .hp {
   display: flex;
-  gap: 2px;
+  gap: 1px;
   height: 14px;
   padding: 2px;
   border: 1px solid var(--line);
   background: #2a3340;
   min-width: 0;
+}
+
+.field-page .hp-dense {
+  gap: 0;
+}
+
+.field-page .hp-span {
+  width: 100%;
+  flex: 1 1 auto;
 }
 
 .field-page .hp-solid {
@@ -868,10 +890,10 @@ body:has(.field-page) {
 
 .field-page .hp-cell {
   position: relative;
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
   height: 100%;
-  background: var(--paper);
+  background: transparent;
   overflow: hidden;
 }
 
@@ -881,10 +903,23 @@ body:has(.field-page) {
 }
 
 .field-fill {
+  position: relative;
+  z-index: 1;
   display: block;
   height: 100%;
   transform-origin: left center;
   animation: field-fill 700ms ease-out;
+}
+
+.source-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 @keyframes field-fill {
