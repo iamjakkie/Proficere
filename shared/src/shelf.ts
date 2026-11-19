@@ -666,10 +666,15 @@ export function clampUnit(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
-/** One segment per chapter. A book with no outline yet is one segment from its growth. */
-export function bookSegments(chapters: { progressPercent: number }[], growth: number): number[] {
+/** One segment per chapter kept in the plan. A book with no outline yet is one segment from its growth. */
+export function bookSegments(
+  chapters: { progressPercent: number; selected?: boolean }[],
+  growth: number,
+): number[] {
   if (!chapters.length) return [clampUnit(growth)];
-  return chapters.map((chapter) => clampUnit(chapter.progressPercent / 100));
+  return chapters
+    .filter((chapter) => chapter.selected !== false)
+    .map((chapter) => clampUnit(chapter.progressPercent / 100));
 }
 
 /** One segment per lesson. No lessons means no segments yet. */

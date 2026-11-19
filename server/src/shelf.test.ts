@@ -279,6 +279,7 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     expect(chapters.length).toBeGreaterThan(1);
     updateChapter(h.db, chapters[0]!.id, { progressPercent: 100 });
     updateChapter(h.db, chapters[1]!.id, { progressPercent: 40 });
+    updateChapter(h.db, chapters[chapters.length - 1]!.id, { selected: false, progressPercent: 100 });
     const article = createArticle(h.db, { title: "Field note" });
     const sheet = createArticle(h.db, { title: "Exercise sheet", kind: "workbook" });
     const app = createApp(h.db);
@@ -303,6 +304,7 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     const bookRow = field.find((item) => item.id === book.id);
     expect(bookRow?.segments[0]).toBe(1);
     expect(bookRow?.segments[1]).toBe(0.4);
+    expect(bookRow?.segments).toHaveLength(chapters.length - 1);
     expect(bookRow?.href).toBe(`/books/${book.id}`);
     expect(field.find((item) => item.id === article.id)).toMatchObject({
       kind: "article",

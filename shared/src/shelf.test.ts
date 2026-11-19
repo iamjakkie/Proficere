@@ -183,10 +183,20 @@ describe("shelf helpers", () => {
 
   it("counts finished chapters and lessons, and a percent for an article", () => {
     expect(bookSegments([], 0.4)).toEqual([0.4]);
-    const chapters = bookSegments([{ progressPercent: 100 }, { progressPercent: 50 }, { progressPercent: 0 }], 0);
+    const chapters = bookSegments(
+      [
+        { progressPercent: 100, selected: true },
+        { progressPercent: 50, selected: true },
+        { progressPercent: 100, selected: false },
+        { progressPercent: 0, selected: true },
+      ],
+      0,
+    );
     expect(chapters).toEqual([1, 0.5, 0]);
     expect(finishedSegmentCount(chapters)).toBe(1);
     expect(fieldFigure("book", chapters)).toBe("1/3");
+    expect(bookSegments([{ progressPercent: 100, selected: false }], 0.9)).toEqual([]);
+    expect(fieldFigure("book", [])).toBe("0/0");
     expect(courseSegments([{ done: true }, { done: false }])).toEqual([1, 0]);
     expect(fieldFigure("course", courseSegments([{ done: true }, { done: false }]))).toBe("1/2");
     expect(fieldFigure("course", [])).toBe("0/0");
