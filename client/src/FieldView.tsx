@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { BookCategory, FieldKind, FieldResource, Priority } from "@progress-island/shared";
 import { bookCategory, categoryColorCss, compareFieldItems, fieldFigure, sharePercent } from "@progress-island/shared";
@@ -25,12 +25,6 @@ const KIND_LABEL: Record<FieldKind, string> = {
   course: "Course",
   workshop: "Project",
 };
-
-function columnsFor(count: number): number {
-  if (count <= 1) return 1;
-  if (count <= 4) return 2;
-  return 3;
-}
 
 function groupsFor(resources: FieldResource[], categories: BookCategory[]): Group[] {
   const byId = new Map<string, FieldResource[]>();
@@ -123,33 +117,8 @@ export function FieldView({
   resources: FieldResource[];
   categories: BookCategory[];
 }) {
-  const frameRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [fit, setFit] = useState<{ width: number; height: number; scale: number } | null>(null);
   const [tip, setTip] = useState<Tip | null>(null);
   const groups = groupsFor(resources, categories);
-
-  useLayoutEffect(() => {
-    const frame = frameRef.current;
-    const stage = stageRef.current;
-    if (!frame || !stage) return;
-    const measure = () => {
-      const style = getComputedStyle(frame);
-      const padX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
-      const padY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-      const availW = Math.max(1, frame.clientWidth - padX);
-      const availH = Math.max(1, frame.clientHeight - padY);
-      const width = stage.scrollWidth;
-      const height = stage.scrollHeight;
-      if (!width || !height) return;
-      const scale = Math.min(availW / width, availH / height);
-      setFit({ width, height, scale: Number.isFinite(scale) && scale > 0 ? scale : 1 });
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(frame);
-    return () => observer.disconnect();
-  }, [resources, categories, groups.length]);
 
   if (!groups.length) {
     return (
@@ -161,73 +130,59 @@ export function FieldView({
 
   return (
     <div className="field-viewport">
-      <div className="field-frame" ref={frameRef}>
-        <div
-          className="field-fit"
-          style={fit ? { width: fit.width * fit.scale, height: fit.height * fit.scale } : undefined}
-        >
-          <div
-            className="field-stage"
-            ref={stageRef}
-            style={fit ? { transform: `scale(${fit.scale})`, transformOrigin: "top left" } : undefined}
-          >
-            <div
-              className="field-groups"
-              style={{ gridTemplateColumns: `repeat(${columnsFor(groups.length)}, minmax(420px, 520px))` }}
-            >
-              {groups.map((group) => {
-                const fills = group.items.flatMap((item) => item.segments);
-                const pct = sharePercent(fills);
-                return (
-                  <section key={group.id} className="field-group" aria-label={group.label}>
-                    <div className="field-cat">
-                      <div className="field-cat-head">
-                        <h2>{group.label}</h2>
-                        <span>{pct}%</span>
-                      </div>
-                      <Meter pct={pct} color={group.color} />
-                    </div>
-                    <ul>
-                      {group.items.map((item) => {
-                        const figure = fieldFigure(item.kind, item.segments);
-                        return (
-                          <li key={`${item.kind}:${item.id}`}>
-                            <Link
-                              to={item.href}
-                              onMouseEnter={(event) =>
-                                setTip({
-                                  item,
-                                  category: group.label,
-                                  color: group.color,
-                                  ...placeCard(event.currentTarget),
-                                })
-                              }
-                              onMouseLeave={() => setTip((current) => (current?.item.id === item.id ? null : current))}
-                              onFocus={(event) =>
-                                setTip({
-                                  item,
-                                  category: group.label,
-                                  color: group.color,
-                                  ...placeCard(event.currentTarget),
-                                })
-                              }
-                              onBlur={() => setTip((current) => (current?.item.id === item.id ? null : current))}
-                            >
-                              <PriorityMark priority={item.priority} color={group.color} />
-                              <KindMark kind={item.kind} provider={item.provider} label={item.providerLabel} />
-                              <span className="field-title">{item.title}</span>
-                              <ResourceBar item={item} color={group.color} />
-                              <span className="field-figure">{figure}</span>
-                            </Link>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </section>
-                );
-              })}
-            </div>
-          </div>
+      <div className="field-frame">
+        <div className="field-groups">
+          {groups.map((group) => {
+            const fills = group.items.flatMap((item) => item.segments);
+            const pct = sharePercent(fills);
+            return (
+              <section key={group.id} className="field-group" aria-label={group.label}>
+                <div className="field-cat">
+                  <div className="field-cat-head">
+                    <h2>{group.label}</h2>
+                    <span>{pct}%</span>
+                  </div>
+                  <Meter pct={pct} color={group.color} />
+                </div>
+                <ul>
+                  {group.items.map((item) => {
+                    const figure = fieldFigure(item.kind, item.segments);
+                    return (
+                      <li key={`${item.kind}:${item.id}`}>
+                        <Link
+                          to={item.href}
+                          onMouseEnter={(event) =>
+                            setTip({
+                              item,
+                              category: group.label,
+                              color: group.color,
+                              ...placeCard(event.currentTarget),
+                            })
+                          }
+                          onMouseLeave={() => setTip((current) => (current?.item.id === item.id ? null : current))}
+                          onFocus={(event) =>
+                            setTip({
+                              item,
+                              category: group.label,
+                              color: group.color,
+                              ...placeCard(event.currentTarget),
+                            })
+                          }
+                          onBlur={() => setTip((current) => (current?.item.id === item.id ? null : current))}
+                        >
+                          <PriorityMark priority={item.priority} color={group.color} />
+                          <KindMark kind={item.kind} provider={item.provider} label={item.providerLabel} />
+                          <span className="field-title">{item.title}</span>
+                          <ResourceBar item={item} color={group.color} />
+                          <span className="field-figure">{figure}</span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            );
+          })}
         </div>
       </div>
       {tip ? (

@@ -762,30 +762,16 @@ body:has(.field-page) {
 }
 
 .field-frame {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  overflow: auto;
   padding: 118px 28px 188px;
-}
-
-.field-fit {
-  position: relative;
-  flex: none;
-}
-
-.field-stage {
-  width: max-content;
 }
 
 .field-groups {
   display: grid;
-  gap: 40px 56px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 28px 32px;
   align-items: start;
-}
-
-.field-group:nth-child(3n + 2) {
-  margin-top: 28px;
+  width: 100%;
 }
 
 .field-group h2 {
