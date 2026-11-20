@@ -3,7 +3,15 @@ import type { Dashboard } from "@progress-island/shared";
 
 const bookColors = ["var(--moss)", "var(--accent)", "var(--sea-deep)"];
 
-export function HomeCharts({ week, pace }: { week: Dashboard["week"]; pace: Dashboard["pace"] }) {
+export function HomeCharts({
+  week,
+  pace,
+  traction,
+}: {
+  week: Dashboard["week"];
+  pace: Dashboard["pace"];
+  traction: Dashboard["traction"];
+}) {
   const pages = week.pages === 1 ? "1 page" : `${week.pages} pages`;
   const days = week.activeDays === 1 ? "1 day" : `${week.activeDays} days`;
   const exams =
@@ -28,6 +36,8 @@ export function HomeCharts({ week, pace }: { week: Dashboard["week"]; pace: Dash
           </div>
         </ChartFrame>
         <p>{week.pages === 0 && week.exams === 0 ? "Quiet week" : `${pages} · ${days}`}{exams ? ` · ${exams}` : ""}</p>
+        <Compare current={traction.week.pages} previous={traction.previousWeek.pages} noun="pages" period="week" />
+        <ExamLine current={traction.week} previous={traction.previousWeek} period="week" />
       </section>
       <section className="chart-card" aria-label="Pages by book over four weeks">
         <p className="chart-label">Books, four weeks</p>
@@ -41,12 +51,66 @@ export function HomeCharts({ week, pace }: { week: Dashboard["week"]; pace: Dash
           ))}
         </div>
         <p>{pace.activeDays} of 28 days</p>
+        <Compare current={traction.month.pages} previous={traction.previousMonth.pages} noun="pages" period="month" />
+        <Compare current={traction.month.activeDays} previous={traction.previousMonth.activeDays} noun="active days" period="month" />
+        <ExamLine current={traction.month} previous={traction.previousMonth} period="month" />
       </section>
       <section className="chart-card" aria-label="Recent exam scores, pass line at 7">
         <p className="chart-label">Exams</p>
         <ScoreChart scores={pace.scores} />
       </section>
     </div>
+  );
+}
+
+function Compare({
+  current,
+  previous,
+  noun,
+  period,
+}: {
+  current: number;
+  previous: number;
+  noun: string;
+  period: string;
+}) {
+  const peak = Math.max(current, previous, 1);
+  const delta = current - previous;
+  const tone = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
+  let text = `Same ${noun} as last ${period}`;
+  if (previous === 0 && current > 0) text = `Up from a quiet ${period}`;
+  else if (current === 0 && previous > 0) text = `Quiet. Last ${period} was ${previous} ${noun}`;
+  else if (delta > 0) text = `+${delta} ${noun} · ${Math.round((delta / previous) * 100)}% ahead of last ${period}`;
+  else if (delta < 0) text = `${Math.abs(delta)} fewer ${noun} · ${Math.round((Math.abs(delta) / previous) * 100)}% behind last ${period}`;
+  return (
+    <div className={`trend ${tone}`}>
+      <p>{text}</p>
+      <div className="trend-row">
+        <span>Now</span>
+        <i style={{ width: current === 0 ? "0" : `${Math.max(4, Math.round((current / peak) * 100))}%` }} />
+      </div>
+      <div className="trend-row">
+        <span>Last</span>
+        <i className="past" style={{ width: previous === 0 ? "0" : `${Math.max(4, Math.round((previous / peak) * 100))}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function ExamLine({
+  current,
+  previous,
+  period,
+}: {
+  current: Dashboard["traction"]["week"];
+  previous: Dashboard["traction"]["week"];
+  period: string;
+}) {
+  if (current.exams === 0 && previous.exams === 0) return null;
+  return (
+    <p>
+      {current.passed} of {current.exams} exams passed · last {period} {previous.passed} of {previous.exams}
+    </p>
   );
 }
 

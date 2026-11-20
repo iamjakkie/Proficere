@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readingPace, weekProgress } from "./week.js";
+import { readingPace, readingTraction, weekProgress } from "./week.js";
 
 const now = new Date("2026-11-16T18:00:00.000Z");
 
@@ -20,6 +20,21 @@ describe("last seven days", () => {
     expect(week.activeDays).toBe(3);
     expect(week.exams).toBe(1);
     expect(week.passed).toBe(1);
+    const traction = readingTraction(
+      [
+        { at: "2026-11-09T10:00:00.000Z", bookId: "a", page: 20 },
+        { at: "2026-11-12T10:00:00.000Z", bookId: "a", page: 10 },
+        { at: "2026-11-12T12:00:00.000Z", bookId: "a", page: 35 },
+        { at: "2026-11-16T09:00:00.000Z", bookId: "b", page: 4 },
+      ],
+      [{ at: "2026-11-14T08:00:00.000Z", passed: true }, { at: "2026-11-01T08:00:00.000Z", passed: true }],
+      now,
+    );
+    expect(traction.week.pages).toBe(week.pages);
+    expect(traction.previousWeek.pages).toBe(20);
+    expect(traction.previousWeek.activeDays).toBe(1);
+    expect(traction.month.pages).toBe(39);
+    expect(traction.previousMonth.pages).toBe(0);
   });
 
   it("tracks four weeks of the books that moved, and keeps scored exams", () => {

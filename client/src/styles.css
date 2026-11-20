@@ -761,9 +761,13 @@ body:has(.field-page) {
   inset: 0;
 }
 
+.field-viewport {
+  left: 340px;
+}
+
 .field-frame {
   overflow: auto;
-  padding: 118px 28px 188px;
+  padding: 108px 20px 24px;
 }
 
 .field-groups {
@@ -937,9 +941,9 @@ body:has(.field-page) {
   position: fixed;
   z-index: 4;
   top: 72px;
-  left: 50%;
+  left: calc(340px + (100vw - 340px) / 2);
   transform: translateX(-50%);
-  max-width: min(420px, calc(100vw - 320px));
+  max-width: min(420px, calc(100vw - 380px));
   padding: 8px 12px;
   border-radius: 10px;
   text-decoration: none;
@@ -949,25 +953,32 @@ body:has(.field-page) {
 }
 
 .field-ai {
-  position: fixed;
+  position: static;
   z-index: 4;
-  left: 16px;
-  bottom: 188px;
   margin: 0;
   padding: 8px 10px;
   border-radius: 10px;
-  max-width: 220px;
+  max-width: none;
+}
+
+.field-metrics {
+  position: fixed;
+  z-index: 5;
+  top: 108px;
+  left: 12px;
+  bottom: 12px;
+  width: 312px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
 }
 
 .field-analytics {
-  position: fixed;
-  z-index: 5;
-  left: 16px;
-  right: 348px;
-  bottom: 12px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
 }
 
 .chart-card {
@@ -1111,14 +1122,63 @@ body:has(.field-page) {
   background: var(--moss);
 }
 
-@media (max-width: 1100px) {
-  .field-analytics {
-    right: 16px;
-    grid-template-columns: 1fr 1fr;
+.trend p {
+  margin: 6px 0 4px;
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.trend.up p {
+  color: var(--moss);
+}
+
+.trend.down p {
+  color: var(--clay);
+}
+
+.trend-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 6px;
+  align-items: center;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.trend-row i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--moss);
+}
+
+.trend-row i.past {
+  background: var(--line);
+}
+
+@media (max-width: 980px) {
+  .field-metrics {
+    top: 72px;
+    left: 8px;
+    right: 8px;
+    bottom: auto;
+    width: auto;
+    max-height: 34vh;
+  }
+
+  .field-viewport {
+    left: 0;
+    top: calc(72px + 34vh);
   }
 
   .field-frame {
-    padding-bottom: 320px;
+    padding: 12px 12px 16px;
+  }
+
+  .field-continue {
+    left: 50%;
+    max-width: calc(100vw - 32px);
   }
 
   .field-editor {

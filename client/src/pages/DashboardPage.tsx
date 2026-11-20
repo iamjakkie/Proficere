@@ -46,8 +46,10 @@ export function DashboardPage() {
           Continue {resume.title}
         </Link>
       )}
-      <HomeCharts week={data.week} pace={data.pace} />
-      {!data.ai.configured && <p className="field-ai">Configure OpenRouter to enable AI. Tracking still works.</p>}
+      <aside className="field-metrics">
+        {!data.ai.configured && <p className="field-ai">Configure OpenRouter to enable AI. Tracking still works.</p>}
+        <HomeCharts week={data.week} pace={data.pace} traction={data.traction} />
+      </aside>
       <details className="field-editor">
         <summary>Categories</summary>
         <CategoryEditor

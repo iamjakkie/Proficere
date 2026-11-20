@@ -1,9 +1,11 @@
 import {
   readingPace,
+  readingTraction,
   weekProgress,
   type ExamMark,
   type ReadingMark,
   type ReadingPace,
+  type Traction,
   type WeekProgress,
 } from "@progress-island/shared";
 import type { Db } from "./db.js";
@@ -20,7 +22,7 @@ function readingMark(at: string, payload: string | null): ReadingMark | null {
 }
 
 /** Furthest-page movement, the active books, and recent exam scores. */
-export function homeCharts(db: Db, now = new Date()): { week: WeekProgress; pace: ReadingPace } {
+export function homeCharts(db: Db, now = new Date()): { week: WeekProgress; pace: ReadingPace; traction: Traction } {
   const titles = new Map(
     (db.prepare("SELECT id, title FROM books").all() as { id: string; title: string }[]).map((row) => [row.id, row.title]),
   );
@@ -46,5 +48,6 @@ export function homeCharts(db: Db, now = new Date()): { week: WeekProgress; pace
       reviews.map((row) => ({ at: row.created_at, grade: row.grade })),
       now,
     ),
+    traction: readingTraction(readings, exams, now),
   };
 }

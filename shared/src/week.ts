@@ -11,6 +11,20 @@ export type WeekProgress = {
   passed: number;
 };
 
+export type ProgressSpan = {
+  pages: number;
+  activeDays: number;
+  exams: number;
+  passed: number;
+};
+
+export type Traction = {
+  week: ProgressSpan;
+  previousWeek: ProgressSpan;
+  month: ProgressSpan;
+  previousMonth: ProgressSpan;
+};
+
 export type PaceBook = { title: string; gained: number; points: number[] };
 export type PaceDay = { date: string; active: boolean };
 export type ExamScore = { date: string; score: number; total: number };
@@ -32,10 +46,26 @@ function shiftDay(date: Date, days: number): Date {
   return next;
 }
 
-/** Seven UTC days ending today. Pages are how far each book moved, not every revisit. */
-export function weekProgress(readings: ReadingMark[], exams: ExamMark[], now = new Date()): WeekProgress {
-  const days: WeekDay[] = Array.from({ length: 7 }, (_, index) => ({
-    date: dayKey(shiftDay(now, index - 6)),
+function spanOf(progress: WeekProgress): ProgressSpan {
+  return {
+    pages: progress.pages,
+    activeDays: progress.activeDays,
+    exams: progress.exams,
+    passed: progress.passed,
+  };
+}
+
+/** A window of UTC days ending `offset` days before today. Pages are how far each book moved, not every revisit. */
+export function progressWindow(
+  readings: ReadingMark[],
+  exams: ExamMark[],
+  now = new Date(),
+  length = 7,
+  offset = 0,
+): WeekProgress {
+  const start = -(length - 1) - offset;
+  const days: WeekDay[] = Array.from({ length }, (_, index) => ({
+    date: dayKey(shiftDay(now, start + index)),
     pages: 0,
   }));
   const inWeek = new Set(days.map((day) => day.date));
@@ -75,6 +105,21 @@ export function weekProgress(readings: ReadingMark[], exams: ExamMark[], now = n
     activeDays,
     exams: examCount,
     passed,
+  };
+}
+
+/** Seven UTC days ending today. */
+export function weekProgress(readings: ReadingMark[], exams: ExamMark[], now = new Date()): WeekProgress {
+  return progressWindow(readings, exams, now, 7, 0);
+}
+
+/** This week and this month, each beside the period just before it. */
+export function readingTraction(readings: ReadingMark[], exams: ExamMark[], now = new Date()): Traction {
+  return {
+    week: spanOf(progressWindow(readings, exams, now, 7, 0)),
+    previousWeek: spanOf(progressWindow(readings, exams, now, 7, 7)),
+    month: spanOf(progressWindow(readings, exams, now, 28, 0)),
+    previousMonth: spanOf(progressWindow(readings, exams, now, 28, 28)),
   };
 }
 

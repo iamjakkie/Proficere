@@ -289,6 +289,32 @@ export const DashboardSchema = z.object({
     exams: z.number().int(),
     passed: z.number().int(),
   }),
+  traction: z.object({
+    week: z.object({
+      pages: z.number().int(),
+      activeDays: z.number().int(),
+      exams: z.number().int(),
+      passed: z.number().int(),
+    }),
+    previousWeek: z.object({
+      pages: z.number().int(),
+      activeDays: z.number().int(),
+      exams: z.number().int(),
+      passed: z.number().int(),
+    }),
+    month: z.object({
+      pages: z.number().int(),
+      activeDays: z.number().int(),
+      exams: z.number().int(),
+      passed: z.number().int(),
+    }),
+    previousMonth: z.object({
+      pages: z.number().int(),
+      activeDays: z.number().int(),
+      exams: z.number().int(),
+      passed: z.number().int(),
+    }),
+  }),
   pace: z.object({
     books: z
       .array(
