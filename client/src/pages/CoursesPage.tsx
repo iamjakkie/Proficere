@@ -1,7 +1,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { BookCategory, Course, Priority } from "@progress-island/shared";
-import { courseProvider, courseraTarget, ocwLectureNotesUrl, udemyCourseSlug } from "@progress-island/shared";
+import {
+  courseProvider,
+  courseraTarget,
+  crashCourseTopicUrl,
+  ocwLectureNotesUrl,
+  udacityCourseUrl,
+  udemyCourseSlug,
+} from "@progress-island/shared";
 import { api } from "../api";
 import { CategorySelect } from "../CategorySelect";
 import { PrioritySelect } from "../PrioritySelect";
@@ -77,11 +84,10 @@ export function CoursesPage() {
       <section className="card course-shelf">
         <h1>Courses</h1>
         <p className="muted">
-          Paste a title and the course URL. A Udemy link loads that course&apos;s public sections. A Coursera
-          specialization loads its courses, and a Coursera course link loads its modules. An MIT OpenCourseWare link
-          loads its lecture list. Confirm the list before anything is stored. Open launches the real site in a new tab,
-          and the files stay there. The category sets the bar color on Home. Priority is a mark on that row: none, high,
-          or top.
+          Paste a title and the course URL. A Udemy, Coursera, Udacity, Crash Course, or MIT OpenCourseWare link loads
+          every public lesson for confirmation. Set the category on that page, with the list. Open launches the real
+          site in a new tab, and the files stay there. The category sets the bar color on Home. Priority is a mark on
+          that row: none, high, or top.
         </p>
         {error && <p className="banner danger">{error}</p>}
         <form className="stack" onSubmit={(event) => void addCourse(event)}>
@@ -100,13 +106,19 @@ export function CoursesPage() {
             />
           </label>
           {udemyCourseSlug(url.trim()) && (
-            <p className="muted">This Udemy link will load its public sections for confirmation.</p>
+            <p className="muted">This Udemy link will load each lecture, quiz, and practice for confirmation.</p>
           )}
           {courseraTarget(url.trim())?.kind === "specialization" && (
-            <p className="muted">This Coursera link will load its public course list for confirmation.</p>
+            <p className="muted">This Coursera link will open each course and load every lesson for confirmation.</p>
           )}
           {courseraTarget(url.trim())?.kind === "course" && (
-            <p className="muted">This Coursera link will load its public modules for confirmation.</p>
+            <p className="muted">This Coursera link will load every video, reading, quiz, and lab for confirmation.</p>
+          )}
+          {udacityCourseUrl(url.trim()) && (
+            <p className="muted">This Udacity link will load every lesson, including projects, for confirmation.</p>
+          )}
+          {crashCourseTopicUrl(url.trim()) && (
+            <p className="muted">This Crash Course link will load every video title for confirmation.</p>
           )}
           {ocwLectureNotesUrl(url.trim()) && (
             <p className="muted">This MIT OpenCourseWare link will load its lecture list for confirmation.</p>

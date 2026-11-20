@@ -330,10 +330,16 @@ export function assertCourseUrl(url: string): void {
   }
 }
 
-export function confirmLessons(db: Db, courseId: string, titles: string[]): CourseLesson[] {
+export function confirmLessons(
+  db: Db,
+  courseId: string,
+  titles: string[],
+  category?: string | null,
+): { course: Course; lessons: CourseLesson[] } {
   getCourse(db, courseId);
   const cleaned = titles.map((title) => title.trim()).filter((title) => title.length > 0);
   if (!cleaned.length) throw new AppError("Confirm at least one lesson title.", "validation", 400);
+  const categoryValue = category === undefined ? undefined : requireKnownCategory(db, category);
   const existing = listLessons(db, courseId);
   const doneByTitle = new Map(existing.map((lesson) => [lesson.title.toLowerCase(), lesson.done]));
   const ts = nowIso();
@@ -346,10 +352,18 @@ export function confirmLessons(db: Db, courseId: string, titles: string[]): Cour
     cleaned.forEach((title, index) => {
       insert.run(uuid(), courseId, index, title, doneByTitle.get(title.toLowerCase()) ? 1 : 0, ts, ts);
     });
-    db.prepare("UPDATE courses SET lessons_confirmed = 1, updated_at = ? WHERE id = ?").run(ts, courseId);
+    if (categoryValue === undefined) {
+      db.prepare("UPDATE courses SET lessons_confirmed = 1, updated_at = ? WHERE id = ?").run(ts, courseId);
+    } else {
+      db.prepare("UPDATE courses SET category = ?, lessons_confirmed = 1, updated_at = ? WHERE id = ?").run(
+        categoryValue,
+        ts,
+        courseId,
+      );
+    }
   });
   write();
-  return listLessons(db, courseId);
+  return { course: getCourse(db, courseId), lessons: listLessons(db, courseId) };
 }
 
 export function setLessonDone(db: Db, courseId: string, lessonId: string, done: boolean): CourseLesson {

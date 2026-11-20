@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import type { Course, CourseLesson } from "@progress-island/shared";
+import type { BookCategory, Course, CourseLesson } from "@progress-island/shared";
 import { courseProvider, hasPublicSyllabus, parseLessonList } from "@progress-island/shared";
 import { api } from "../api";
+import { CategorySelect } from "../CategorySelect";
 
 export function CoursePage() {
   const { id } = useParams();
@@ -11,6 +12,10 @@ export function CoursePage() {
   const [lessons, setLessons] = useState<CourseLesson[]>([]);
   const [paste, setPaste] = useState("");
   const [preview, setPreview] = useState<string[] | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [notes, setNotes] = useState<string[]>([]);
+  const [categories, setCategories] = useState<BookCategory[]>([]);
+  const [category, setCategory] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const autoReadFor = useRef<string | null>(null);
@@ -21,6 +26,7 @@ export function CoursePage() {
       .then((data) => {
         setCourse(data.course);
         setLessons(data.lessons);
+        setCategory(data.course.category);
       })
       .catch((err: Error) => setError(err.message));
   }
@@ -28,6 +34,12 @@ export function CoursePage() {
   useEffect(() => {
     load();
   }, [id]);
+
+  useEffect(() => {
+    api<{ categories: BookCategory[] }>("/api/categories")
+      .then((data) => setCategories(data.categories))
+      .catch(() => setCategories([]));
+  }, []);
 
   useEffect(() => {
     if (!course || lessons.length > 0 || autoReadFor.current === course.id) return;
@@ -52,11 +64,13 @@ export function CoursePage() {
     setBusy(true);
     setError(null);
     try {
-      const data = await api<{ titles: string[] }>("/api/courses/syllabus", {
+      const data = await api<{ titles: string[]; warnings?: string[]; notes?: string[] }>("/api/courses/syllabus", {
         method: "POST",
         body: JSON.stringify({ url: course.url }),
       });
       setPreview(data.titles);
+      setWarnings(data.warnings ?? []);
+      setNotes(data.notes ?? []);
       setPaste(data.titles.join("\n"));
     } catch (err) {
       setPreview(null);
@@ -81,13 +95,32 @@ export function CoursePage() {
   async function confirm() {
     if (!course || !preview?.length) return;
     setError(null);
-    const data = await api<{ lessons: CourseLesson[] }>(`/api/courses/${course.id}/lessons/confirm`, {
+    const data = await api<{ lessons: CourseLesson[]; course: Course }>(`/api/courses/${course.id}/lessons/confirm`, {
       method: "POST",
-      body: JSON.stringify({ titles: preview }),
+      body: JSON.stringify({ titles: preview, category }),
     });
     setLessons(data.lessons);
+    setCourse(data.course);
+    setCategory(data.course.category);
     setPreview(null);
+    setWarnings([]);
+    setNotes([]);
     setPaste("");
+  }
+
+  async function assignCategory(next: string | null) {
+    if (!course) return;
+    setCategory(next);
+    setError(null);
+    try {
+      const data = await api<{ course: Course }>(`/api/courses/${course.id}/category`, {
+        method: "PUT",
+        body: JSON.stringify({ category: next }),
+      });
+      setCourse(data.course);
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   async function mark(lesson: CourseLesson, done: boolean) {
@@ -111,8 +144,9 @@ export function CoursePage() {
       </p>
       <section className="card course-shelf">
         <h1>{course.title}</h1>
-        <p>
+        <p className="row-actions">
           <span className="source-tag">{courseProvider(course.url).label}</span>
+          <CategorySelect label="Category" categories={categories} value={category} onChange={(next) => void assignCategory(next)} />
         </p>
         <p className="row-actions">
           <a className="btn primary" href={course.url} target="_blank" rel="noreferrer">
@@ -133,8 +167,8 @@ export function CoursePage() {
         {lessons.length === 0 && (
           <p>
             {busy
-              ? "Reading the public section list…"
-              : "No lessons stored yet. A Udemy, Coursera, or MIT OpenCourseWare link loads its public list for confirmation. Otherwise paste a list, or try to read titles from a public page, then confirm."}
+              ? "Reading the public lesson list…"
+              : "No lessons stored yet. A Udemy, Coursera, Udacity, MIT OpenCourseWare, or Crash Course link loads every public lesson for confirmation. Set the category here, then confirm. Otherwise paste a list, or try to read titles from a public page."}
           </p>
         )}
         <ul className="lesson-list">
@@ -173,7 +207,15 @@ export function CoursePage() {
         {preview && (
           <div className="card">
             <h2>Confirm these lessons</h2>
-            <p className="muted">Edit the list before it is stored. Nothing here is saved until you confirm.</p>
+            <p className="muted">
+              Edit the list before it is stored. The category above is saved with this list. Nothing is stored until you confirm.
+            </p>
+            {notes.length > 0 && <p className="muted">{notes.join(" · ")}</p>}
+            {warnings.map((warning) => (
+              <p key={warning} className="banner">
+                {warning}
+              </p>
+            ))}
             <textarea
               aria-label="Lesson preview"
               rows={Math.min(12, Math.max(4, preview.length))}

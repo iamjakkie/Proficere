@@ -31,6 +31,7 @@ import {
   workshopSegments,
   WorkshopPlanSchema,
 } from "./shelf.js";
+import { crashCourseTopicUrl, courseraCourseLinks, courseraSyllabus } from "./syllabus-extract.js";
 
 describe("shelf helpers", () => {
   it("parses a pasted lesson list without inventing lines", () => {
@@ -63,6 +64,24 @@ describe("shelf helpers", () => {
     expect(courseraTarget("https://www.coursera.org/about")).toBeNull();
     expect(hasPublicSyllabus("https://www.udemy.com/course/multithreading_parta/")).toBe(true);
     expect(hasPublicSyllabus("https://www.coursera.org/specializations/rust")).toBe(true);
+    expect(hasPublicSyllabus("https://www.udacity.com/course/sensor-fusion-engineer-nanodegree--nd313")).toBe(true);
+    expect(crashCourseTopicUrl("https://thecrashcourse.com/topic/astronomy")).toBe(
+      "https://thecrashcourse.com/topic/astronomy",
+    );
+    expect(
+      courseraSyllabus(`<h1>Filters</h1><h3>Week 1</h3>
+        <h5>2 videos • Total 10 minutes</h5>
+        <ul><li>Introduction<span>2 min</span><ul><li>nested</li></ul></li><li>Bayes update</li></ul>
+        <h5>3 readings</h5><ul><li>Notes</li></ul>`).titles,
+    ).toEqual(["Introduction", "Bayes update", "Notes"]);
+    expect(
+      courseraSyllabus(`<h5>3 readings</h5><ul><li>Notes</li></ul>`).warnings[0],
+    ).toMatch(/expected 3, got 1/);
+    expect(
+      courseraCourseLinks(
+        `<a href="/learn/rust-from-zero?utm=1" data-e2e="sdp-course-list-link">Rust</a>`,
+      ),
+    ).toEqual(["https://www.coursera.org/learn/rust-from-zero"]);
     expect(ocwLectureNotesUrl("https://ocw.mit.edu/courses/16-346-astrodynamics-fall-2008/")).toBe(
       "https://ocw.mit.edu/courses/16-346-astrodynamics-fall-2008/pages/lecture-notes/",
     );

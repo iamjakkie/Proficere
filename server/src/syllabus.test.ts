@@ -8,15 +8,25 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function html(body: string, status = 200): Response {
+  return new Response(body, { status, headers: { "content-type": "text/html" } });
+}
+
+const COURSERA_COURSE = `<h1>Rust From Zero</h1>
+  <h3>Ownership</h3>
+  <h5>2 videos • Total 10 minutes</h5>
+  <ul>
+    <li>Moves and copies<span>4 min</span></li>
+    <li>Borrowing</li>
+  </ul>
+  <h5>1 reading</h5>
+  <ul><li>The book, chapter 4</li></ul>`;
+
 describe("course syllabus", () => {
-  it("loads Udemy section titles and skips lectures", async () => {
-    const seen: string[] = [];
+  it("loads Udemy lesson titles and keeps a section list when there are no lessons", async () => {
     const fetchImpl: typeof fetch = async (input) => {
       const url = String(input);
-      seen.push(url);
-      if (url.includes("/courses/multithreading_parta/")) {
-        return json({ id: 2370762, title: "Part A" });
-      }
+      if (url.includes("/courses/multithreading_parta/")) return json({ id: 2370762, title: "Part A" });
       if (url.includes("page=2")) {
         return json({
           next: null,
@@ -30,43 +40,44 @@ describe("course syllabus", () => {
         next: "https://www.udemy.com/api-2.0/courses/2370762/public-curriculum-items/?page=2",
         results: [
           { _class: "chapter", title: "Getting Started" },
-          { _class: "lecture", title: "Hello World", asset: { title: "hello.mp4" } },
+          { _class: "lecture", title: "Hello World" },
+          { _class: "quiz", title: "Check" },
         ],
       });
     };
 
-    const titles = await fetchLessonTitles("https://www.udemy.com/course/multithreading_parta/", fetchImpl);
-    expect(titles).toEqual(["Getting Started", "Semaphores"]);
-    expect(seen.some((url) => url.includes("/courses/2370762/public-curriculum-items/"))).toBe(true);
-    expect(seen.some((url) => url.includes("page=2"))).toBe(true);
+    const preview = await fetchLessonTitles("https://www.udemy.com/course/multithreading_parta/", fetchImpl);
+    expect(preview.titles).toEqual(["Hello World", "Check", "A lecture"]);
+    expect(preview.notes).toEqual(["3 items"]);
   });
 
-  it("loads Coursera specialization courses in published order", async () => {
+  it("follows each Coursera course and checks the group counts", async () => {
+    const seen: string[] = [];
     const fetchImpl: typeof fetch = async (input) => {
       const url = String(input);
-      if (url.includes("q=slug")) return json({ elements: [{ id: "specId_ok", description: "ignore" }] });
-      if (url.includes("/onDemandSpecializations.v1/specId_ok")) {
-        return json({ elements: [{ courseIds: ["courseB___", "courseA___"] }] });
+      seen.push(url);
+      if (url.includes("/specializations/rust")) {
+        return html(`<a data-e2e="sdp-course-list-link" href="/learn/rust-from-zero?utm=1">Rust</a>
+          <a data-e2e="sdp-course-list-link" href="https://www.coursera.org/learn/polars">Polars</a>`);
       }
-      return json({
-        elements: [
-          { id: "courseA___", name: "Polars from Zero", description: "not a lesson" },
-          { id: "courseB___", name: "Rust From Zero" },
-        ],
-      });
+      if (url.includes("/learn/polars")) {
+        return html(`<h1>Polars</h1><h3>Frames</h3><h5>1 video</h5><ul><li>Lazy frames</li></ul>`);
+      }
+      return html(COURSERA_COURSE);
     };
-    const titles = await fetchLessonTitles("https://www.coursera.org/specializations/rust", fetchImpl);
-    expect(titles).toEqual(["Rust From Zero", "Polars from Zero"]);
+    const preview = await fetchLessonTitles("https://www.coursera.org/specializations/rust", fetchImpl);
+    expect(preview.titles).toEqual(["Moves and copies", "Borrowing", "The book, chapter 4", "Lazy frames"]);
+    expect(preview.warnings).toEqual([]);
+    expect(preview.notes).toEqual(["Rust From Zero: 3 items", "Polars: 1 items"]);
+    expect(seen.some((url) => url.startsWith("https://www.coursera.org/learn/rust-from-zero"))).toBe(true);
   });
 
-  it("loads Coursera course modules and ignores a page that is neither", async () => {
+  it("reports a Coursera group that is short and rejects a page that is neither", async () => {
     const fetchImpl: typeof fetch = async () =>
-      json({
-        elements: [{ id: "material" }],
-        linked: { "onDemandCourseMaterialModules.v1": [{ name: "Ownership" }, { name: "Capstone Project" }] },
-      });
-    const titles = await fetchLessonTitles("https://www.coursera.org/learn/rust", fetchImpl);
-    expect(titles).toEqual(["Ownership", "Capstone Project"]);
+      html(`<h1>Rust</h1><h3>Ownership</h3><h5>3 videos • Total 20 minutes</h5><ul><li>Moves</li></ul>`);
+    const preview = await fetchLessonTitles("https://www.coursera.org/learn/rust", fetchImpl);
+    expect(preview.titles).toEqual(["Moves"]);
+    expect(preview.warnings[0]).toMatch(/expected 3, got 1/);
     const blocked: typeof fetch = async () => {
       throw new Error("should not fetch");
     };
@@ -77,19 +88,52 @@ describe("course syllabus", () => {
     const seen: string[] = [];
     const fetchImpl: typeof fetch = async (input) => {
       seen.push(String(input));
-      return new Response(
-        `<main id="course-content-section"><table>
+      return html(`<main id="course-content-section"><table>
           <tr><td>1</td><td>The two-body problem (<a href="/lec_01/">PDF</a>)</td></tr>
           <tr><td>16</td><td>Non-singular &ldquo;Gauss-like&rdquo; method (<a href="/lec_16/">PDF</a>)</td></tr>
-        </table></main>`,
-        { status: 200, headers: { "content-type": "text/html" } },
-      );
+        </table></main>`);
     };
-    const titles = await fetchLessonTitles(
+    const preview = await fetchLessonTitles(
       "https://ocw.mit.edu/courses/16-346-astrodynamics-fall-2008/pages/lecture-notes/",
       fetchImpl,
     );
-    expect(titles).toEqual(["1. The two-body problem", '16. Non-singular "Gauss-like" method']);
+    expect(preview.titles).toEqual(["1. The two-body problem", '16. Non-singular "Gauss-like" method']);
     expect(seen).toEqual(["https://ocw.mit.edu/courses/16-346-astrodynamics-fall-2008/pages/lecture-notes/"]);
+  });
+
+  it("reads Udacity lessons from the page data and Crash Course video titles", async () => {
+    const udacity: typeof fetch = async () =>
+      html(
+        `<script id="__NEXT_DATA__" type="application/json">${JSON.stringify({
+          props: {
+            pageProps: {
+              staticProgramOutlineSectionProps: {
+                parts: [
+                  {
+                    title: "Sensors",
+                    lessons: [{ title: "Lidar" }, { title: "Project: fuse a track", isProjectLesson: true }],
+                  },
+                ],
+              },
+            },
+          },
+        })}</script>`,
+      );
+    const preview = await fetchLessonTitles(
+      "https://www.udacity.com/course/sensor-fusion-engineer-nanodegree--nd313",
+      udacity,
+    );
+    expect(preview.titles).toEqual(["Lidar", "Project: fuse a track"]);
+    expect(preview.notes).toEqual(["Sensors: 2 items"]);
+
+    const crash: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/page/2")) return html(`<h2 class="fl-post-title">Second video</h2>`);
+      return html(
+        `<h2 class="fl-post-title">First video</h2><a rel="next" href="https://thecrashcourse.com/topic/astronomy/page/2">Next</a>`,
+      );
+    };
+    const videos = await fetchLessonTitles("https://thecrashcourse.com/topic/astronomy", crash);
+    expect(videos.titles).toEqual(["First video", "Second video"]);
   });
 });

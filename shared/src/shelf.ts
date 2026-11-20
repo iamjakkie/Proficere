@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { crashCourseTopicUrl, udacityCourseUrl } from "./syllabus-extract.js";
 
 export const priorities = ["none", "high", "top"] as const;
 export const PrioritySchema = z.enum(priorities);
@@ -267,9 +268,15 @@ export function ocwLectureNotesUrl(url: string): string | null {
   return `https://ocw.mit.edu/courses/${course[1]}/pages/lecture-notes/`;
 }
 
-/** True when a pasted link can load a public section list. */
+/** True when a pasted link can load a public lesson list. */
 export function hasPublicSyllabus(url: string): boolean {
-  return udemyCourseSlug(url) != null || courseraTarget(url) != null || ocwLectureNotesUrl(url) != null;
+  return (
+    udemyCourseSlug(url) != null ||
+    courseraTarget(url) != null ||
+    ocwLectureNotesUrl(url) != null ||
+    udacityCourseUrl(url) != null ||
+    crashCourseTopicUrl(url) != null
+  );
 }
 
 /** Course titles for a specialization, in the published courseIds order. */

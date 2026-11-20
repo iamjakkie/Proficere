@@ -1,17 +1,27 @@
 import {
   AppError,
-  courseraCourseTitles,
-  courseraModuleTitles,
+  type SyllabusItems,
+  courseraCourseLinks,
+  courseraSyllabus,
   courseraTarget,
+  crashCourseTitles,
+  crashCourseTopicUrl,
   lessonTitlesFromHtml,
   ocwLectureNotesUrl,
   ocwLectureTitles,
+  udacityCourseUrl,
+  udacityLessonTitles,
   udemyCourseSlug,
+  udemyItemTitles,
   udemySectionTitles,
 } from "@progress-island/shared";
 import { assertCourseUrl } from "./shelf-store.js";
 
-const UDEMY_PAGE_CAP = 6;
+const UDEMY_PAGE_CAP = 20;
+const COURSE_CAP = 40;
+/** A browser agent. Course sites put the full syllabus in the HTML they return to one. */
+const BROWSER_UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 
 export function syllabusBlockReason(status: number, finalUrl: string, html: string): string | null {
   if (status === 401 || status === 403) {
@@ -34,17 +44,20 @@ export function syllabusBlockReason(status: number, finalUrl: string, html: stri
   return null;
 }
 
-/** Fetch a public page and return only headings that are actually in the HTML. */
-export async function fetchLessonTitles(url: string, fetchImpl: typeof fetch = fetch): Promise<string[]> {
+/** Fetch a public page and return the lesson titles that are actually on it. */
+export async function fetchLessonTitles(url: string, fetchImpl: typeof fetch = fetch): Promise<SyllabusItems> {
   assertCourseUrl(url);
   const host = new URL(url).hostname.replace(/^www\./, "");
   const slug = udemyCourseSlug(url);
-  if (slug) return fetchUdemySections(slug, fetchImpl);
+  if (slug) return fetchUdemyItems(slug, fetchImpl);
   const coursera = courseraTarget(url);
-  if (coursera?.kind === "specialization") return fetchCourseraSpecialization(coursera.slug, fetchImpl);
-  if (coursera?.kind === "course") return fetchCourseraModules(coursera.slug, fetchImpl);
+  if (coursera) return fetchCoursera(url, coursera.kind, fetchImpl);
   const notes = ocwLectureNotesUrl(url);
   if (notes) return fetchOcwLectures(notes, fetchImpl);
+  const udacity = udacityCourseUrl(url);
+  if (udacity) return fetchUdacity(udacity, fetchImpl);
+  const crash = crashCourseTopicUrl(url);
+  if (crash) return fetchCrashCourse(crash, fetchImpl);
   if (host === "coursera.org") {
     throw new AppError(
       "That Coursera link is not a course or specialization. Paste the lesson titles instead.",
@@ -56,10 +69,10 @@ export async function fetchLessonTitles(url: string, fetchImpl: typeof fetch = f
   try {
     response = await fetchImpl(url, {
       redirect: "follow",
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(12000),
       headers: {
         Accept: "text/html,application/xhtml+xml",
-        "User-Agent": "ProgressIsland/0.1 (local syllabus preview)",
+        "User-Agent": BROWSER_UA,
       },
     });
   } catch {
@@ -82,11 +95,11 @@ export async function fetchLessonTitles(url: string, fetchImpl: typeof fetch = f
   }
   const parsed = lessonTitlesFromHtml(html);
   if (parsed.reason) throw new AppError(parsed.reason, "syllabus_empty", 400);
-  return parsed.titles;
+  return { titles: parsed.titles, warnings: [], notes: [] };
 }
 
 /** Lecture titles from an MIT OpenCourseWare notes page. The PDF files stay on OCW. */
-async function fetchOcwLectures(notesUrl: string, fetchImpl: typeof fetch): Promise<string[]> {
+async function fetchOcwLectures(notesUrl: string, fetchImpl: typeof fetch): Promise<SyllabusItems> {
   let response: Response;
   try {
     response = await fetchImpl(notesUrl, {
@@ -94,7 +107,7 @@ async function fetchOcwLectures(notesUrl: string, fetchImpl: typeof fetch): Prom
       signal: AbortSignal.timeout(8000),
       headers: {
         Accept: "text/html,application/xhtml+xml",
-        "User-Agent": "ProgressIsland/0.1 (local syllabus preview)",
+        "User-Agent": BROWSER_UA,
       },
     });
   } catch {
@@ -120,11 +133,11 @@ async function fetchOcwLectures(notesUrl: string, fetchImpl: typeof fetch): Prom
       400,
     );
   }
-  return titles;
+  return { titles, warnings: [], notes: [] };
 }
 
-/** Public section titles for a Udemy course. Lectures, practice items, and media stay on Udemy. */
-async function fetchUdemySections(slug: string, fetchImpl: typeof fetch): Promise<string[]> {
+/** Public lesson, quiz, and practice titles for a Udemy course. Media stays on Udemy. */
+async function fetchUdemyItems(slug: string, fetchImpl: typeof fetch): Promise<SyllabusItems> {
   const lookup = new URL(`https://www.udemy.com/api-2.0/courses/${encodeURIComponent(slug)}/`);
   lookup.searchParams.set("fields[course]", "id,title");
   const course = await readUdemyJson(lookup, fetchImpl);
@@ -143,13 +156,18 @@ async function fetchUdemySections(slug: string, fetchImpl: typeof fetch): Promis
     curriculum.searchParams.set("page_size", "100");
     const body = await readUdemyJson(curriculum, fetchImpl);
     pages.push(body);
-    const titles = udemySectionTitles(pages);
+    const titles = udemyItemTitles(pages);
     const next = (body as { next?: unknown }).next;
-    if (titles.length >= 80 || !next) return titles.length ? titles : missingSections();
+    if (titles.length >= 2000 || !next) return itemsOrSections(pages, titles);
   }
-  const titles = udemySectionTitles(pages);
-  if (!titles.length) missingSections();
-  return titles;
+  return itemsOrSections(pages, udemyItemTitles(pages));
+}
+
+function itemsOrSections(pages: unknown[], titles: string[]): SyllabusItems {
+  if (titles.length) return { titles, warnings: [], notes: [`${titles.length} items`] };
+  const sections = udemySectionTitles(pages);
+  if (!sections.length) missingSections();
+  return { titles: sections, warnings: [], notes: [`${sections.length} sections`] };
 }
 
 function missingSections(): never {
@@ -203,103 +221,122 @@ async function readUdemyJson(url: URL, fetchImpl: typeof fetch): Promise<unknown
   }
 }
 
-/** Course titles in a Coursera specialization. Lecture video stays on Coursera. */
-async function fetchCourseraSpecialization(slug: string, fetchImpl: typeof fetch): Promise<string[]> {
-  const lookup = new URL("https://www.coursera.org/api/onDemandSpecializations.v1");
-  lookup.searchParams.set("q", "slug");
-  lookup.searchParams.set("slug", slug);
-  lookup.searchParams.set("fields", "id");
-  const found = await readCourseraJson(lookup, fetchImpl);
-  const id = courseraId((found as { elements?: { id?: unknown }[] }).elements?.[0]?.id);
-  if (!id) missingCoursera("specialization");
-  const detail = new URL(`https://www.coursera.org/api/onDemandSpecializations.v1/${id}`);
-  detail.searchParams.set("fields", "courseIds");
-  const body = await readCourseraJson(detail, fetchImpl);
-  const ids = ((body as { elements?: { courseIds?: unknown }[] }).elements?.[0]?.courseIds ?? [])
-    .map(courseraId)
-    .filter((value): value is string => value != null)
-    .slice(0, 80);
-  if (!ids.length) missingCoursera("specialization");
-  const names = new URL("https://www.coursera.org/api/courses.v1");
-  names.searchParams.set("ids", ids.join(","));
-  names.searchParams.set("fields", "id,name");
-  const listed = await readCourseraJson(names, fetchImpl);
-  const titles = courseraCourseTitles(ids, (listed as { elements?: unknown[] }).elements ?? []);
+/**
+ * Every Coursera item. A program page only lists courses, so each course page is opened in order.
+ * Videos and files stay on Coursera. A group whose count does not match is reported, not filled in.
+ */
+async function fetchCoursera(
+  url: string,
+  kind: "specialization" | "course",
+  fetchImpl: typeof fetch,
+): Promise<SyllabusItems> {
+  const html = await readHtml(url, fetchImpl, "Coursera");
+  if (kind === "course") {
+    const parsed = courseraSyllabus(html);
+    if (!parsed.titles.length) missingCoursera("course");
+    return { titles: parsed.titles, warnings: parsed.warnings, notes: parsed.notes };
+  }
+  const links = courseraCourseLinks(html);
+  if (!links.length) {
+    throw new AppError(
+      "No course links found on this Coursera page. Paste the lesson titles instead.",
+      "syllabus_empty",
+      400,
+    );
+  }
+  const titles: string[] = [];
+  const warnings: string[] = [];
+  const notes: string[] = [];
+  if (links.length > COURSE_CAP) notes.push(`Stopped after ${COURSE_CAP} courses.`);
+  for (const [index, link] of links.slice(0, COURSE_CAP).entries()) {
+    if (index > 0) await pause(200);
+    const page = await readHtml(link, fetchImpl, "Coursera");
+    const parsed = courseraSyllabus(page);
+    titles.push(...parsed.titles);
+    warnings.push(...parsed.warnings);
+    notes.push(...parsed.notes);
+    if (titles.length >= 2000) {
+      notes.push("Stopped after 2000 lessons.");
+      break;
+    }
+  }
   if (!titles.length) missingCoursera("specialization");
-  return titles;
+  return { titles: titles.slice(0, 2000), warnings, notes };
 }
 
-/** Module titles for one Coursera course. */
-async function fetchCourseraModules(slug: string, fetchImpl: typeof fetch): Promise<string[]> {
-  const materials = new URL("https://www.coursera.org/api/onDemandCourseMaterials.v2/");
-  materials.searchParams.set("q", "slug");
-  materials.searchParams.set("slug", slug);
-  materials.searchParams.set("includes", "modules");
-  materials.searchParams.set("fields", "onDemandCourseMaterialModules.v1(name)");
-  const body = await readCourseraJson(materials, fetchImpl);
-  const modules =
-    (body as { linked?: { "onDemandCourseMaterialModules.v1"?: unknown[] } }).linked?.[
-      "onDemandCourseMaterialModules.v1"
-    ] ?? [];
-  const titles = courseraModuleTitles(modules);
-  if (!titles.length) missingCoursera("course");
-  return titles;
+async function fetchUdacity(url: string, fetchImpl: typeof fetch): Promise<SyllabusItems> {
+  const html = await readHtml(url, fetchImpl, "Udacity");
+  const parsed = udacityLessonTitles(html);
+  if (!parsed.titles.length) {
+    throw new AppError(
+      parsed.warnings[0] ?? "Udacity did not share a lesson list. Paste the lesson titles instead.",
+      "syllabus_empty",
+      400,
+    );
+  }
+  return parsed;
 }
 
-function courseraId(value: unknown): string | null {
-  const id = String(value ?? "");
-  return /^[A-Za-z0-9_-]{8,64}$/.test(id) ? id : null;
+async function fetchCrashCourse(url: string, fetchImpl: typeof fetch): Promise<SyllabusItems> {
+  const titles: string[] = [];
+  const seen = new Set<string>();
+  let page: string | null = url;
+  while (page && !seen.has(page) && seen.size < 8 && titles.length < 2000) {
+    seen.add(page);
+    const html = await readHtml(page, fetchImpl, "Crash Course");
+    const parsed = crashCourseTitles(html);
+    titles.push(...parsed.titles);
+    if (!parsed.next) break;
+    try {
+      page = new URL(parsed.next, page).href;
+    } catch {
+      break;
+    }
+  }
+  if (!titles.length) {
+    throw new AppError(
+      "No videos found on that Crash Course page. Paste the lesson titles instead.",
+      "syllabus_empty",
+      400,
+    );
+  }
+  return { titles: titles.slice(0, 2000), warnings: [], notes: [`${Math.min(titles.length, 2000)} videos`] };
+}
+
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function readHtml(url: string, fetchImpl: typeof fetch, site: string): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      redirect: "follow",
+      signal: AbortSignal.timeout(20000),
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": BROWSER_UA,
+      },
+    });
+  } catch {
+    throw new AppError(`Could not read that ${site} page. Paste the lesson titles instead.`, "syllabus_blocked", 400);
+  }
+  if (!response.ok) {
+    throw new AppError(
+      `${site} did not share a lesson list for that link. Paste the lesson titles instead.`,
+      "syllabus_empty",
+      400,
+    );
+  }
+  return response.text();
 }
 
 function missingCoursera(kind: "specialization" | "course"): never {
   throw new AppError(
     kind === "specialization"
-      ? "Coursera did not share a course list for that specialization. Paste the lesson titles instead."
-      : "Coursera did not share a module list for that course. Paste the lesson titles instead.",
+      ? "Coursera did not share a lesson list for that specialization. Paste the lesson titles instead."
+      : "Coursera did not share a lesson list for that course. Paste the lesson titles instead.",
     "syllabus_empty",
     400,
   );
-}
-
-async function readCourseraJson(url: URL, fetchImpl: typeof fetch): Promise<unknown> {
-  let response: Response;
-  try {
-    response = await fetchImpl(url, {
-      redirect: "follow",
-      signal: AbortSignal.timeout(8000),
-      headers: {
-        Accept: "application/json",
-        "User-Agent": "ProgressIsland/0.1 (local syllabus preview)",
-      },
-    });
-  } catch {
-    throw new AppError(
-      "Could not read that Coursera page's public list. Paste the lesson titles instead.",
-      "syllabus_blocked",
-      400,
-    );
-  }
-  if (response.status === 404) {
-    throw new AppError(
-      "Coursera did not share a public list for that link. Paste the lesson titles instead.",
-      "syllabus_empty",
-      400,
-    );
-  }
-  if (!response.ok) {
-    throw new AppError(
-      "Coursera refused the public list. Paste the lesson titles instead.",
-      "syllabus_blocked",
-      400,
-    );
-  }
-  try {
-    return await response.json();
-  } catch {
-    throw new AppError(
-      "Coursera did not return a public list. Paste the lesson titles instead.",
-      "syllabus_empty",
-      400,
-    );
-  }
 }

@@ -127,8 +127,9 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     const courseId = created.body.course.id as string;
     const confirmed = await request(app)
       .post(`/api/courses/${courseId}/lessons/confirm`)
-      .send({ titles: ["Kalman filter", "Smoothing"] })
+      .send({ titles: ["Kalman filter", "Smoothing"], category: "navigation" })
       .expect(200);
+    expect(confirmed.body.course.category).toBe("navigation");
     const first = confirmed.body.lessons[0];
     expect(first.done).toBe(false);
     const done = await request(app)
@@ -227,7 +228,7 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     handles.push(h);
     const course = createCourse(h.db, { title: "Filters", url: "https://example.edu/filters" });
     const lessons = confirmLessons(h.db, course.id, ["Kalman filter"]);
-    setLessonDone(h.db, course.id, lessons[0]!.id, true);
+    setLessonDone(h.db, course.id, lessons.lessons[0]!.id, true);
     setExerciseSearchOptIn(h.db);
     setExerciseSearchLastAt(h.db, new Date().toISOString());
     let calls = 0;
@@ -290,7 +291,7 @@ describe("articles, courses, workshop, and exercise suggestions", () => {
     expect(assigned.body.article.category).toBe("navigation");
     const course = createCourse(h.db, { title: "Field course", url: "https://example.edu/field" });
     const lessons = confirmLessons(h.db, course.id, ["One", "Two"]);
-    setLessonDone(h.db, course.id, lessons[0]!.id, true);
+    setLessonDone(h.db, course.id, lessons.lessons[0]!.id, true);
     setCourseCategory(h.db, course.id, "estimation");
     const project = createWorkshopProject(h.db, { title: "Bench", category: "navigation", priority: "top" });
     createWorkshopCard(h.db, project.id, { title: "Wire the imu" });

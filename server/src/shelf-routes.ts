@@ -166,8 +166,7 @@ export function registerShelfRoutes(app: Express, db: Db): void {
     "/api/courses/syllabus",
     asyncHandler(async (req, res) => {
       const body = z.object({ url: z.string().min(1) }).parse(req.body);
-      const titles = await fetchLessonTitles(body.url);
-      res.json({ titles });
+      res.json(await fetchLessonTitles(body.url));
     }),
   );
 
@@ -220,9 +219,14 @@ export function registerShelfRoutes(app: Express, db: Db): void {
   app.post(
     "/api/courses/:id/lessons/confirm",
     asyncHandler(async (req, res) => {
-      const body = z.object({ titles: z.array(z.string()) }).parse(req.body);
+      const body = z
+        .object({
+          titles: z.array(z.string()),
+          category: z.string().min(1).max(40).nullable().optional(),
+        })
+        .parse(req.body);
       const titles = body.titles.map((title) => title.trim()).filter((title) => title.length > 0);
-      res.json({ lessons: confirmLessons(db, req.params.id, titles) });
+      res.json(confirmLessons(db, req.params.id, titles, body.category));
     }),
   );
 
