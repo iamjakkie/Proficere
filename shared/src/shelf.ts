@@ -718,12 +718,14 @@ export function sharePercent(segments: number[]): number {
   return Math.round((done / segments.length) * 100);
 }
 
-/** Highest progress first. Equal progress keeps top priority ahead of high, then title. */
+/** Unfinished resources first, furthest along at the top. A finished resource sorts last. */
 export function compareFieldItems(
   a: { title: string; priority: Priority; segments: number[] },
   b: { title: string; priority: Priority; segments: number[] },
 ): number {
+  const done = Number(resourceComplete(a.segments)) - Number(resourceComplete(b.segments));
   return (
+    done ||
     sharePercent(b.segments) - sharePercent(a.segments) ||
     priorityRank(a.priority) - priorityRank(b.priority) ||
     a.title.localeCompare(b.title)

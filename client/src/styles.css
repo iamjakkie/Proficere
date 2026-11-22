@@ -784,6 +784,7 @@ body:has(.field-page) {
 }
 
 .field-group ul {
+  --field-row: 22px;
   list-style: none;
   margin: 10px 0 0;
   padding: 0;
@@ -791,18 +792,26 @@ body:has(.field-page) {
   gap: 8px;
 }
 
+.field-group ul.is-scroll {
+  max-height: calc(10 * var(--field-row) + 9 * 8px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+}
+
 .field-group a {
   display: grid;
   grid-template-columns: 14px 16px minmax(0, 1.4fr) minmax(72px, 1fr) max-content;
   gap: 10px;
   align-items: center;
+  height: var(--field-row, 22px);
   color: inherit;
   text-decoration: none;
 }
 
 .field-group a.is-done {
   margin: 0 -6px;
-  padding: 3px 6px;
+  padding: 0 6px;
   border-radius: 6px;
   background: color-mix(in srgb, var(--good) 18%, transparent);
 }

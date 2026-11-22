@@ -26,6 +26,8 @@ type Tip = {
   y: number;
 };
 
+const FIELD_LIST_LIMIT = 10;
+
 const KIND_LABEL: Record<FieldKind, string> = {
   book: "Book",
   article: "Article",
@@ -151,7 +153,7 @@ export function FieldView({
                   </div>
                   <Meter pct={pct} color={group.color} />
                 </div>
-                <ul>
+                <ul className={group.items.length > FIELD_LIST_LIMIT ? "is-scroll" : undefined}>
                   {group.items.map((item) => {
                     const figure = fieldFigure(item.kind, item.segments);
                     const done = resourceComplete(item.segments);

@@ -236,7 +236,7 @@ describe("shelf helpers", () => {
       { title: "Done top", priority: "top" as const, segments: [1] },
       { title: "Halfway", priority: "high" as const, segments: [1, 0] },
     ].sort(compareFieldItems);
-    expect(order.map((item) => item.title)).toEqual(["Done top", "Done none", "Halfway", "Late"]);
+    expect(order.map((item) => item.title)).toEqual(["Halfway", "Late", "Done top", "Done none"]);
     expect(workshopSegments([{ column: "done" }, { column: "todo" }, { column: "test" }])).toEqual([1, 0, 0]);
     expect(fieldFigure("workshop", [1, 0, 0])).toBe("1/3");
     expect(cleanPriority("top")).toBe("top");
