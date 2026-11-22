@@ -792,11 +792,45 @@ body:has(.field-page) {
   gap: 8px;
 }
 
+.field-scroll {
+  position: relative;
+  padding-right: 18px;
+}
+
 .field-group ul.is-scroll {
   max-height: calc(10 * var(--field-row) + 9 * 8px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 6px;
+  scrollbar-width: none;
+}
+
+.field-group ul.is-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.field-scroll-track,
+.field-scroll-thumb {
+  position: absolute;
+  top: 10px;
+  right: 0;
+  width: 10px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.field-scroll-track {
+  bottom: 0;
+  background: #6d7c8d;
+}
+
+.field-scroll-thumb {
+  background: #f4f7fa;
+}
+
+.field-group ul.is-scroll a.is-done {
+  margin-right: 0;
 }
 
 .field-group a {

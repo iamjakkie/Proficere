@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { BookCategory, FieldKind, FieldResource, Priority } from "@progress-island/shared";
 import {
@@ -103,6 +103,53 @@ function PriorityMark({ priority, color }: { priority: Priority; color: string }
   );
 }
 
+function FieldList({ scroll, children }: { scroll: boolean; children: ReactNode }) {
+  const listRef = useRef<HTMLUListElement>(null);
+  const [thumb, setThumb] = useState<{ top: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list || !scroll) return;
+    const measure = () => {
+      const { scrollTop, scrollHeight, clientHeight } = list;
+      if (scrollHeight <= clientHeight + 1) {
+        setThumb(null);
+        return;
+      }
+      const height = Math.max(28, (clientHeight / scrollHeight) * clientHeight);
+      const room = Math.max(0, clientHeight - height);
+      const top = scrollHeight === clientHeight ? 0 : (scrollTop / (scrollHeight - clientHeight)) * room;
+      setThumb({ top, height });
+    };
+    measure();
+    list.addEventListener("scroll", measure, { passive: true });
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => {
+      list.removeEventListener("scroll", measure);
+      observer.disconnect();
+    };
+  }, [scroll]);
+
+  if (!scroll) return <ul>{children}</ul>;
+
+  return (
+    <div className="field-scroll">
+      <ul ref={listRef} className="is-scroll">
+        {children}
+      </ul>
+      <span className="field-scroll-track" aria-hidden="true" />
+      {thumb ? (
+        <span
+          className="field-scroll-thumb"
+          style={{ height: thumb.height, transform: `translateY(${thumb.top}px)` }}
+          aria-hidden="true"
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function ResourceBar({ item, color }: { item: FieldResource; color: string }) {
   if (item.kind === "article") return <Meter pct={Math.round((item.segments[0] ?? 0) * 100)} color={color} />;
   return <SegmentBar segments={item.segments} color={color} />;
@@ -153,7 +200,7 @@ export function FieldView({
                   </div>
                   <Meter pct={pct} color={group.color} />
                 </div>
-                <ul className={group.items.length > FIELD_LIST_LIMIT ? "is-scroll" : undefined}>
+                <FieldList scroll={group.items.length > FIELD_LIST_LIMIT}>
                   {group.items.map((item) => {
                     const figure = fieldFigure(item.kind, item.segments);
                     const done = resourceComplete(item.segments);
@@ -194,7 +241,7 @@ export function FieldView({
                       </li>
                     );
                   })}
-                </ul>
+                </FieldList>
               </section>
             );
           })}
