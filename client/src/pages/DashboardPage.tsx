@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import type { BookCategory, Dashboard } from "@progress-island/shared";
 import { categoryColorCss } from "@progress-island/shared";
 import { api } from "../api";
@@ -36,16 +35,9 @@ export function DashboardPage() {
     }
   }
 
-  const resume = continueTarget(data);
-
   return (
     <div className="field-page">
       <FieldView resources={data.field} categories={categories} />
-      {resume && (
-        <Link className="field-continue" to={resume.href}>
-          Continue {resume.title}
-        </Link>
-      )}
       <aside className="field-metrics">
         {!data.ai.configured && <p className="field-ai">Configure OpenRouter to enable AI. Tracking still works.</p>}
         <HomeCharts week={data.week} pace={data.pace} traction={data.traction} />
@@ -72,14 +64,6 @@ export function DashboardPage() {
       </details>
     </div>
   );
-}
-
-function continueTarget(data: Dashboard): { href: string; title: string } | null {
-  if (data.activeCourse) return { href: data.activeCourse.href, title: data.activeCourse.title };
-  if (!data.nextChapter) return null;
-  const tree = data.trees.find((item) => item.bookId === data.nextChapter?.bookId);
-  const href = tree?.hasPdf ? `/books/${data.nextChapter.bookId}/read` : `/books/${data.nextChapter.bookId}`;
-  return { href, title: data.nextChapter.title };
 }
 
 function CategoryEditor({
