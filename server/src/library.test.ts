@@ -283,8 +283,40 @@ describe("reading progress from the viewer", () => {
       .expect(200);
     expect(skipped.body.examGate).toBeNull();
     expect(skipped.body.chapters[2]).toMatchObject({ progressPercent: 100, status: "completed" });
+    expect(h.db.prepare("SELECT status FROM projects WHERE id = 'proj'").get()).toMatchObject({ status: "dismissed" });
     const again = await request(app).post(`/api/books/${id}/reading`).send({ page: 3, pageCount: 3 }).expect(200);
     expect(again.body.examGate).toBeNull();
+  });
+
+  it("removes a created exam and lets reading continue", async () => {
+    const h = tempDb();
+    handles.push(h);
+    const app = createApp(h.db);
+    const created = await request(app).post("/api/books").send({ title: "Removable" });
+    const id = created.body.book.id as string;
+    const saved = await request(app)
+      .post(`/api/books/${id}/chapters/confirm`)
+      .send({
+        outline: [
+          { number: null, title: "Chapter 1 Introduction", pdfPageStart: 1, pdfPageEnd: 1 },
+          { number: null, title: "1.1 Concepts", pdfPageStart: 1, pdfPageEnd: 2 },
+          { number: null, title: "Chapter 2 Frames", pdfPageStart: 3, pdfPageEnd: 3 },
+        ],
+      })
+      .expect(200);
+    const firstId = saved.body.chapters[0].id as string;
+    const now = new Date().toISOString();
+    h.db.prepare(
+      `INSERT INTO projects (id, batch_id, proposal_id, status, brief_json, dismiss_reason, created_at, updated_at)
+       VALUES ('created-exam', NULL, 'p', 'active', ?, NULL, ?, ?)`,
+    ).run(JSON.stringify({ sources: [{ bookId: id, chapterId: firstId }] }), now, now);
+    const held = await request(app).post(`/api/books/${id}/reading`).send({ page: 3, pageCount: 3 }).expect(200);
+    expect(held.body.examGate).toMatchObject({ chapterId: firstId, projectId: "created-exam" });
+    const removed = await request(app).post("/api/projects/created-exam/skip").expect(200);
+    expect(removed.body.project.status).toBe("dismissed");
+    const continued = await request(app).post(`/api/books/${id}/reading`).send({ page: 3, pageCount: 3 }).expect(200);
+    expect(continued.body.examGate).toBeNull();
+    expect(continued.body.chapters[2]).toMatchObject({ progressPercent: 100, status: "completed" });
   });
 
   it("grows a book that has no chapter page spans from the furthest opened page", async () => {

@@ -23,6 +23,7 @@ import {
   hashText,
   listBooksForLibrary,
   listChapters,
+  markExamSkipped,
   nowIso,
 } from "./store.js";
 
@@ -330,6 +331,47 @@ export function updateDraft(db: Db, projectId: string, brief: ProjectProposal): 
     projectId,
   );
   return getProject(db, projectId);
+}
+
+/** Removes an exam that has not been passed and lets reading continue past it. */
+export function cancelExam(db: Db, projectId: string): ProjectRecord {
+  const project = getProject(db, projectId);
+  if (project.status === "dismissed") return project;
+  if (latestReviewForProject(db, projectId)?.passed === true) {
+    throw new AppError("A passed exam stays on the list.", "project_state", 400);
+  }
+  const refs = examChapterRefs(db, project);
+  if (refs.length === 0) {
+    throw new AppError("This exam is not tied to a chapter, so it cannot be skipped.", "not_found", 400);
+  }
+  for (const ref of refs) markExamSkipped(db, ref.bookId, ref.chapterId);
+  db.prepare(
+    `UPDATE projects SET status = 'dismissed', dismiss_reason = 'Skipped', updated_at = ? WHERE id = ?`,
+  ).run(nowIso(), projectId);
+  return getProject(db, projectId);
+}
+
+function examChapterRefs(db: Db, project: ProjectRecord): { bookId: string; chapterId: string }[] {
+  const found = new Map<string, string>();
+  const take = (brief: { sources?: { bookId?: string; chapterId?: string }[] } | null) => {
+    for (const source of brief?.sources ?? []) {
+      if (!source?.chapterId) continue;
+      let bookId = source.bookId?.trim() || "";
+      if (!bookId) {
+        const row = db.prepare("SELECT book_id FROM chapters WHERE id = ?").get(source.chapterId) as
+          | { book_id: string }
+          | undefined;
+        bookId = row?.book_id ?? "";
+      }
+      if (bookId) found.set(source.chapterId, bookId);
+    }
+  };
+  take(project.brief);
+  const versions = db.prepare("SELECT brief_json FROM project_versions WHERE project_id = ?").all(project.id) as {
+    brief_json: string;
+  }[];
+  for (const version of versions) take(parseJson(version.brief_json, null));
+  return [...found].map(([chapterId, bookId]) => ({ chapterId, bookId }));
 }
 
 export function dismissProject(db: Db, projectId: string, reason: string): ProjectRecord {

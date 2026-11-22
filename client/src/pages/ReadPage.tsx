@@ -484,7 +484,7 @@ export function ReadPage() {
           <div className="reader-gate-card">
             <h2 id="reader-gate-title">Pass this exam before continuing</h2>
             <p>{examGate.message}</p>
-            <p className="muted">Skip leaves the exam unfinished.</p>
+            <p className="muted">Skip removes this exam and lets you continue.</p>
             {examGate.projectId ? (
               <p>This exam is ready.</p>
             ) : examGate.failure ? (

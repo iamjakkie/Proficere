@@ -180,6 +180,24 @@ export function ProjectsPage() {
     }
   }
 
+  async function skipExam(project: ProjectRow) {
+    if (!window.confirm(`Remove “${project.brief.title}” and continue without this exam?`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/projects/${project.id}/skip`, { method: "POST" });
+      if (openId === project.id) {
+        setOpenId(null);
+        setDetail(null);
+      }
+      await load();
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function dismissSuggestion(title: string) {
     setBusy(true);
     setError(null);
@@ -416,9 +434,9 @@ export function ProjectsPage() {
         </ul>
       )}
 
-      {options && options.projects.length > 0 && (
+      {options && options.projects.some((project) => project.status !== "dismissed") && (
         <ul className="project-list">
-          {options.projects.map((project) => {
+          {options.projects.filter((project) => project.status !== "dismissed").map((project) => {
             const open = openId === project.id && brief;
             return (
               <li key={project.id} className={project.passed === false ? "exam-fail" : undefined}>
@@ -429,7 +447,14 @@ export function ProjectsPage() {
                     </button>
                     <SourceLinks sources={project.brief.sources} />
                   </div>
-                  <span className="muted">{statusText(project)}</span>
+                  <span className="row">
+                    <span className="muted">{statusText(project)}</span>
+                    {project.passed !== true && (
+                      <button className="btn" type="button" disabled={busy} onClick={() => void skipExam(project)}>
+                        Skip
+                      </button>
+                    )}
+                  </span>
                 </div>
                 {open && detail && (
                   <div className="project-body stack">

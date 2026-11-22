@@ -64,6 +64,7 @@ import {
   addSubmission,
   approveProject,
   buildSuggestionContext,
+  cancelExam,
   dismissProject,
   dismissSuggestion,
   findBatch,
@@ -1204,6 +1205,13 @@ export function createApp(db: Db): Express {
     asyncHandler(async (req, res) => {
       const body = z.object({ reason: z.string().min(3).max(500) }).parse(req.body);
       res.json({ project: presentProject(dismissProject(db, req.params.id, body.reason)) });
+    }),
+  );
+
+  app.post(
+    "/api/projects/:id/skip",
+    asyncHandler(async (req, res) => {
+      res.json({ project: presentProject(cancelExam(db, req.params.id)) });
     }),
   );
 

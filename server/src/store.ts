@@ -613,12 +613,30 @@ export function examSkipped(db: Db, chapterId: string): boolean {
   return Boolean(getSetting(db, `${EXAM_SKIPPED_PREFIX}${chapterId}`));
 }
 
-/** Leaves the milestone exam unfinished and stops it from blocking later chapters. */
+/** Marks the milestone skipped and removes the exam that was blocking it. */
 export function skipMilestoneExam(db: Db, bookId: string, chapterId: string): void {
+  const ids = markExamSkipped(db, bookId, chapterId);
+  const projectId = examProjectId(db, ids);
+  if (projectId) retireExam(db, projectId);
+}
+
+/** Stops this milestone from asking for an exam. The chapter must belong to the book. */
+export function markExamSkipped(db: Db, bookId: string, chapterId: string): string[] {
   const chapters = listChapters(db, bookId);
+  if (!chapters.some((chapter) => chapter.id === chapterId)) {
+    throw new AppError("That chapter has no exam to skip.", "not_found", 404);
+  }
   const ids = milestoneSpanIds(chapters, chapterId);
-  if (ids.length === 0) throw new AppError("That chapter has no exam to skip.", "not_found", 404);
-  for (const id of ids) setSetting(db, `${EXAM_SKIPPED_PREFIX}${id}`, "skipped");
+  const targets = ids.length > 0 ? ids : [chapterId];
+  for (const id of targets) setSetting(db, `${EXAM_SKIPPED_PREFIX}${id}`, "skipped");
+  return targets;
+}
+
+function retireExam(db: Db, projectId: string): void {
+  db.prepare(
+    `UPDATE projects SET status = 'dismissed', dismiss_reason = 'Skipped', updated_at = ?
+     WHERE id = ? AND status != 'dismissed'`,
+  ).run(nowIso(), projectId);
 }
 
 export function examUnavailableMessage(db: Db, chapterId: string): string | null {
