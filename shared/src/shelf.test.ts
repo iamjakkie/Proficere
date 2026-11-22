@@ -8,6 +8,7 @@ import {
   courseSegments,
   exerciseHitsFromJson,
   fieldFigure,
+  resourceComplete,
   finishedSegmentCount,
   isPdfLink,
   isUniversityHost,
@@ -225,6 +226,10 @@ describe("shelf helpers", () => {
     expect(fieldFigure("article", articleSegments(40))).toBe("40%");
     expect(sharePercent([1, 0.5, 0, 0.4])).toBe(48);
     expect(sharePercent([])).toBe(0);
+    expect(resourceComplete([1, 1])).toBe(true);
+    expect(resourceComplete([1, 0.99])).toBe(false);
+    expect(resourceComplete([])).toBe(false);
+    expect(resourceComplete(articleSegments(100))).toBe(true);
     const order = [
       { title: "Late", priority: "top" as const, segments: [0.2] },
       { title: "Done none", priority: "none" as const, segments: [1] },

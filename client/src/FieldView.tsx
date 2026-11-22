@@ -1,7 +1,14 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { BookCategory, FieldKind, FieldResource, Priority } from "@progress-island/shared";
-import { bookCategory, categoryColorCss, compareFieldItems, fieldFigure, sharePercent } from "@progress-island/shared";
+import {
+  bookCategory,
+  categoryColorCss,
+  compareFieldItems,
+  fieldFigure,
+  resourceComplete,
+  sharePercent,
+} from "@progress-island/shared";
 import { KindMark } from "./KindMark";
 
 type Group = {
@@ -147,9 +154,11 @@ export function FieldView({
                 <ul>
                   {group.items.map((item) => {
                     const figure = fieldFigure(item.kind, item.segments);
+                    const done = resourceComplete(item.segments);
                     return (
                       <li key={`${item.kind}:${item.id}`}>
                         <Link
+                          className={done ? "is-done" : undefined}
                           to={item.href}
                           onMouseEnter={(event) =>
                             setTip({
@@ -174,7 +183,11 @@ export function FieldView({
                           <KindMark kind={item.kind} provider={item.provider} label={item.providerLabel} />
                           <span className="field-title">{item.title}</span>
                           <ResourceBar item={item} color={group.color} />
-                          <span className="field-figure">{figure}</span>
+                          <span className="field-figure">
+                            {done ? <span className="field-done" aria-hidden="true" /> : null}
+                            {done ? <span className="sr-only">Done, </span> : null}
+                            {figure}
+                          </span>
                         </Link>
                       </li>
                     );
@@ -191,8 +204,8 @@ export function FieldView({
           <p>
             {KIND_LABEL[tip.item.kind]}
             {tip.item.providerLabel ? ` · ${tip.item.providerLabel}` : ""} · {tip.category}
-            {tip.item.priority === "none" ? "" : tip.item.priority === "top" ? " · Top" : " · High"} ·{" "}
-            {fieldFigure(tip.item.kind, tip.item.segments)}
+            {tip.item.priority === "none" ? "" : tip.item.priority === "top" ? " · Top" : " · High"}
+            {resourceComplete(tip.item.segments) ? " · Done" : ""} · {fieldFigure(tip.item.kind, tip.item.segments)}
           </p>
           <ResourceBar item={tip.item} color={tip.color} />
         </div>

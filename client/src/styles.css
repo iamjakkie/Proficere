@@ -793,11 +793,22 @@ body:has(.field-page) {
 
 .field-group a {
   display: grid;
-  grid-template-columns: 14px 16px minmax(0, 1.4fr) minmax(96px, 1fr) 3.4rem;
+  grid-template-columns: 14px 16px minmax(0, 1.4fr) minmax(72px, 1fr) max-content;
   gap: 10px;
   align-items: center;
   color: inherit;
   text-decoration: none;
+}
+
+.field-group a.is-done {
+  margin: 0 -6px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--good) 18%, transparent);
+}
+
+.field-group a.is-done .hp {
+  border-color: var(--good);
 }
 
 .kind-mark {
@@ -849,9 +860,40 @@ body:has(.field-page) {
 }
 
 .field-figure {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  min-width: 3.4rem;
   color: var(--muted);
   font-size: 0.82rem;
   text-align: right;
+  white-space: nowrap;
+}
+
+.field-group a.is-done .field-figure {
+  color: var(--good);
+}
+
+.field-done {
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid var(--good);
+  border-bottom: 2px solid var(--good);
+  transform: rotate(-45deg) translateY(-1px);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .field-page .hp {

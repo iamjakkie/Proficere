@@ -706,6 +706,11 @@ export function finishedSegmentCount(segments: number[]): number {
   return segments.filter((fill) => fill >= 1).length;
 }
 
+/** Every planned segment is finished. An empty plan is not complete. */
+export function resourceComplete(segments: number[]): boolean {
+  return segments.length > 0 && segments.every((fill) => fill >= 1);
+}
+
 /** Share of segments that are done, including a partial segment. Rounded for the printed percent. */
 export function sharePercent(segments: number[]): number {
   if (!segments.length) return 0;
