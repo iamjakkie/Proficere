@@ -822,11 +822,11 @@ body:has(.field-page) {
 
 .field-scroll-track {
   bottom: 0;
-  background: #6d7c8d;
+  background: rgb(109 124 141 / 28%);
 }
 
 .field-scroll-thumb {
-  background: #f4f7fa;
+  background: rgb(244 247 250 / 42%);
 }
 
 .field-group ul.is-scroll a.is-done {
