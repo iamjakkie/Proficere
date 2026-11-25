@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { chapterPdfSpan, creditedPdfPage, type ReadingChapter } from "./reading.js";
 import { crashCourseTopicUrl, udacityCourseUrl } from "./syllabus-extract.js";
 
 export const priorities = ["none", "high", "top"] as const;
@@ -666,8 +667,10 @@ export const FieldResourceSchema = z.object({
   /** Course host, read from the course URL. Null for a book, an article, or a workshop. */
   provider: z.string().nullable(),
   providerLabel: z.string().nullable(),
-  /** 0–1 per chapter, lesson, or workshop task. An article is one segment. */
+  /** 0–1 per chapter, lesson, page, or workshop task. An article without a PDF is one segment. */
   segments: z.array(z.number().min(0).max(1)),
+  /** The segments are PDF pages, so the figure is pages read over the page count. */
+  pages: z.boolean().optional(),
 });
 export type FieldResource = z.infer<typeof FieldResourceSchema>;
 
@@ -687,6 +690,93 @@ export function bookSegments(
     .map((chapter) => clampUnit(chapter.progressPercent / 100));
 }
 
+type PdfChapter = {
+  selected?: boolean;
+  pdfPageStart?: number | null;
+  pdfPageEnd?: number | null;
+  progressPercent: number;
+  pagePosition?: string | null;
+};
+
+function wholePage(value: string | number | null | undefined): number | null {
+  const page = Number(value);
+  return Number.isInteger(page) && page > 0 ? page : null;
+}
+
+/** Last page of a chapter that reading, or a finished chapter, has reached. */
+function reachedPdfPage(chapter: PdfChapter, span: { start: number; end: number }): number {
+  if (chapter.progressPercent >= 100) return span.end;
+  const credited = creditedPdfPage(chapter.pagePosition);
+  if (credited != null) return Math.min(span.end, credited);
+  if (chapter.progressPercent <= 0) return span.start - 1;
+  const length = span.end - span.start + 1;
+  const done = Math.round((chapter.progressPercent / 100) * length);
+  return span.start + done - 1;
+}
+
+/**
+ * Pages read against the PDF. The file length is the total once the reader
+ * knows it. Otherwise the total is the pages of chapters kept in the plan,
+ * unless that map is smaller than the chapter count. Returns null when the
+ * book has no page count to measure.
+ */
+export function bookPdfProgress(
+  chapters: PdfChapter[],
+  identifiers?: Record<string, string>,
+): { read: number; total: number } | null {
+  const filePages = wholePage(identifiers?.pdfPageCount);
+  const opened = wholePage(identifiers?.readPdfPage) ?? 0;
+  const reading: ReadingChapter[] = chapters.map((chapter, index) => ({
+    id: String(index),
+    pdfPageStart: chapter.pdfPageStart ?? null,
+    pdfPageEnd: chapter.pdfPageEnd ?? null,
+    progressPercent: chapter.progressPercent,
+    pagePosition: chapter.pagePosition,
+  }));
+
+  if (filePages) {
+    const covered = new Uint8Array(filePages + 1);
+    for (let page = 1; page <= Math.min(filePages, opened); page += 1) covered[page] = 1;
+    chapters.forEach((chapter, index) => {
+      if (chapter.selected === false) return;
+      const span = chapterPdfSpan(reading, index, filePages);
+      if (!span) return;
+      const end = Math.min(span.end, filePages);
+      const reached = reachedPdfPage(chapter, { start: span.start, end });
+      for (let page = Math.max(1, span.start); page <= Math.min(end, reached); page += 1) covered[page] = 1;
+    });
+    let read = 0;
+    for (let page = 1; page <= filePages; page += 1) if (covered[page]) read += 1;
+    return { read, total: filePages };
+  }
+
+  const planned = new Set<number>();
+  const readPages = new Set<number>();
+  chapters.forEach((chapter, index) => {
+    if (chapter.selected === false) return;
+    const span = chapterPdfSpan(reading, index, 0);
+    if (!span) return;
+    const reached = Math.max(reachedPdfPage(chapter, span), opened);
+    for (let page = span.start; page <= span.end; page += 1) {
+      planned.add(page);
+      if (page <= reached) readPages.add(page);
+    }
+  });
+  if (planned.size === 0) return null;
+  const selectedCount = chapters.filter((chapter) => chapter.selected !== false).length;
+  if (planned.size < selectedCount) return null;
+  let read = 0;
+  for (const page of planned) if (readPages.has(page)) read += 1;
+  return { read, total: planned.size };
+}
+
+/** One segment per page. Pages up to `read` are filled. */
+export function pageSegments(read: number, total: number): number[] {
+  const pages = Math.max(0, Math.floor(total));
+  const done = Math.min(pages, Math.max(0, Math.floor(read)));
+  return Array.from({ length: pages }, (_, index) => (index < done ? 1 : 0));
+}
+
 /** One segment per lesson. No lessons means no segments yet. */
 export function courseSegments(lessons: { done: boolean }[]): number[] {
   return lessons.map((lesson) => (lesson.done ? 1 : 0));
@@ -694,6 +784,13 @@ export function courseSegments(lessons: { done: boolean }[]): number[] {
 
 export function articleSegments(progressPercent: number): number[] {
   return [clampUnit(progressPercent / 100)];
+}
+
+/** Furthest page of an article PDF. Null until the file has a page count. */
+export function articlePdfProgress(page: number, pageCount: number | null): { read: number; total: number } | null {
+  if (pageCount == null || !Number.isInteger(pageCount) || pageCount < 1) return null;
+  const read = Number.isInteger(page) && page > 0 ? Math.min(page, pageCount) : 0;
+  return { read, total: pageCount };
 }
 
 /** One segment per task. Only a task in Done is filled. */
@@ -766,8 +863,8 @@ export function courseProvider(url: string): { id: string; label: string } {
   return { id: "link", label: label || "Course" };
 }
 
-export function fieldFigure(kind: FieldKind, segments: number[]): string {
-  if (kind === "article") return `${Math.round((segments[0] ?? 0) * 100)}%`;
+export function fieldFigure(kind: FieldKind, segments: number[], pages = false): string {
+  if (kind === "article" && !pages) return `${Math.round((segments[0] ?? 0) * 100)}%`;
   return `${finishedSegmentCount(segments)}/${segments.length}`;
 }
 

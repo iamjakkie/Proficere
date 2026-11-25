@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  articlePdfProgress,
   articleSegments,
+  bookPdfProgress,
   bookSegments,
+  pageSegments,
   cleanPriority,
   compareFieldItems,
   courseProvider,
@@ -224,6 +227,37 @@ describe("shelf helpers", () => {
     expect(fieldFigure("course", [])).toBe("0/0");
     expect(articleSegments(40)).toEqual([0.4]);
     expect(fieldFigure("article", articleSegments(40))).toBe("40%");
+    const gnss = bookPdfProgress(
+      [
+        { pdfPageStart: 22, pdfPageEnd: 25, progressPercent: 100, pagePosition: "pdf:25", selected: true },
+        { pdfPageStart: 56, pdfPageEnd: 60, progressPercent: 20, pagePosition: "pdf:56", selected: true },
+        { pdfPageStart: 61, pdfPageEnd: 70, progressPercent: 0, selected: false },
+      ],
+      { readPdfPage: "56", pdfPageCount: "797" },
+    );
+    expect(gnss).toEqual({ read: 56, total: 797 });
+    expect(fieldFigure("book", pageSegments(gnss!.read, gnss!.total), true)).toBe("56/797");
+    expect(
+      bookPdfProgress(
+        [
+          { pdfPageStart: 1, pdfPageEnd: 2, progressPercent: 100, selected: true },
+          { pdfPageStart: 3, pdfPageEnd: 4, progressPercent: 0, selected: true },
+          { pdfPageStart: 5, pdfPageEnd: 6, progressPercent: 100, selected: false },
+        ],
+        {},
+      ),
+    ).toEqual({ read: 2, total: 4 });
+    expect(bookPdfProgress([{ progressPercent: 40, selected: true }], {})).toBeNull();
+    const collapsed = Array.from({ length: 8 }, () => ({
+      pdfPageStart: 10,
+      pdfPageEnd: 16,
+      progressPercent: 0,
+      selected: true,
+    }));
+    expect(bookPdfProgress(collapsed, {})).toBeNull();
+    expect(articlePdfProgress(12, 30)).toEqual({ read: 12, total: 30 });
+    expect(fieldFigure("article", pageSegments(12, 30), true)).toBe("12/30");
+    expect(articlePdfProgress(1, null)).toBeNull();
     expect(sharePercent([1, 0.5, 0, 0.4])).toBe(48);
     expect(sharePercent([])).toBe(0);
     expect(resourceComplete([1, 1])).toBe(true);

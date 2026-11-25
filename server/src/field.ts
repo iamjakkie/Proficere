@@ -1,10 +1,13 @@
 import {
+  articlePdfProgress,
   articleSegments,
+  bookPdfProgress,
   bookSegments,
   cleanPriority,
   courseProvider,
   courseSegments,
   growthForBook,
+  pageSegments,
   workshopSegments,
   type FieldResource,
 } from "@progress-island/shared";
@@ -24,6 +27,7 @@ export function fieldResources(db: Db): FieldResource[] {
 
   for (const book of listBooks(db)) {
     const chapters = listChapters(db, book.id);
+    const pdf = book.libraryFilename ? bookPdfProgress(chapters, book.identifiers) : null;
     resources.push({
       id: book.id,
       kind: "book",
@@ -33,12 +37,14 @@ export function fieldResources(db: Db): FieldResource[] {
       priority: cleanPriority(book.identifiers.priority),
       provider: null,
       providerLabel: null,
-      segments: bookSegments(chapters, growthForBook(chapters, book.identifiers)),
+      segments: pdf ? pageSegments(pdf.read, pdf.total) : bookSegments(chapters, growthForBook(chapters, book.identifiers)),
+      pages: pdf != null,
     });
   }
 
   for (const article of listArticles(db)) {
     if (article.kind === "workbook") continue;
+    const pdf = article.libraryFilename ? articlePdfProgress(article.pagePosition, article.pageCount) : null;
     resources.push({
       id: article.id,
       kind: "article",
@@ -48,7 +54,8 @@ export function fieldResources(db: Db): FieldResource[] {
       priority: article.priority,
       provider: null,
       providerLabel: null,
-      segments: articleSegments(article.progressPercent),
+      segments: pdf ? pageSegments(pdf.read, pdf.total) : articleSegments(article.progressPercent),
+      pages: pdf != null,
     });
   }
 

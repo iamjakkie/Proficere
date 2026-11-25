@@ -150,7 +150,13 @@ function FieldList({ scroll, children }: { scroll: boolean; children: ReactNode 
   );
 }
 
+function fillPercent(segments: number[]): number {
+  if (!segments.length) return 0;
+  return (segments.reduce((sum, fill) => sum + fill, 0) / segments.length) * 100;
+}
+
 function ResourceBar({ item, color }: { item: FieldResource; color: string }) {
+  if (item.pages) return <Meter pct={fillPercent(item.segments)} color={color} />;
   if (item.kind === "article") return <Meter pct={Math.round((item.segments[0] ?? 0) * 100)} color={color} />;
   return <SegmentBar segments={item.segments} color={color} />;
 }
@@ -202,7 +208,7 @@ export function FieldView({
                 </div>
                 <FieldList scroll={group.items.length > FIELD_LIST_LIMIT}>
                   {group.items.map((item) => {
-                    const figure = fieldFigure(item.kind, item.segments);
+                    const figure = fieldFigure(item.kind, item.segments, item.pages);
                     const done = resourceComplete(item.segments);
                     return (
                       <li key={`${item.kind}:${item.id}`}>
@@ -254,7 +260,7 @@ export function FieldView({
             {KIND_LABEL[tip.item.kind]}
             {tip.item.providerLabel ? ` · ${tip.item.providerLabel}` : ""} · {tip.category}
             {tip.item.priority === "none" ? "" : tip.item.priority === "top" ? " · Top" : " · High"}
-            {resourceComplete(tip.item.segments) ? " · Done" : ""} · {fieldFigure(tip.item.kind, tip.item.segments)}
+            {resourceComplete(tip.item.segments) ? " · Done" : ""} · {fieldFigure(tip.item.kind, tip.item.segments, tip.item.pages)}
           </p>
           <ResourceBar item={tip.item} color={tip.color} />
         </div>
