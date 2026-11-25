@@ -4,10 +4,10 @@ import type { BookCategory, FieldKind, FieldResource, Priority } from "@progress
 import {
   bookCategory,
   categoryColorCss,
+  categoryPercent,
   compareFieldItems,
   fieldFigure,
   resourceComplete,
-  sharePercent,
 } from "@progress-island/shared";
 import { KindMark } from "./KindMark";
 
@@ -195,8 +195,7 @@ export function FieldView({
       <div className="field-frame">
         <div className="field-groups">
           {groups.map((group) => {
-            const fills = group.items.flatMap((item) => item.segments);
-            const pct = sharePercent(fills);
+            const pct = categoryPercent(group.items);
             return (
               <section key={group.id} className="field-group" aria-label={group.label}>
                 <div className="field-cat">

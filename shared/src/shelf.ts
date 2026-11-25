@@ -808,6 +808,13 @@ export function resourceComplete(segments: number[]): boolean {
   return segments.length > 0 && segments.every((fill) => fill >= 1);
 }
 
+/** Finished sources over every source in the category. A source still in progress does not count. */
+export function categoryPercent(resources: { segments: number[] }[]): number {
+  if (!resources.length) return 0;
+  const finished = resources.filter((resource) => resourceComplete(resource.segments)).length;
+  return Math.round((finished / resources.length) * 100);
+}
+
 /** Share of segments that are done, including a partial segment. Rounded for the printed percent. */
 export function sharePercent(segments: number[]): number {
   if (!segments.length) return 0;

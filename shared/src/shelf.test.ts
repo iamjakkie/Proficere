@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  categoryPercent,
   articlePdfProgress,
   articleSegments,
   bookPdfProgress,
@@ -258,6 +259,9 @@ describe("shelf helpers", () => {
     expect(articlePdfProgress(12, 30)).toEqual({ read: 12, total: 30 });
     expect(fieldFigure("article", pageSegments(12, 30), true)).toBe("12/30");
     expect(articlePdfProgress(1, null)).toBeNull();
+    expect(categoryPercent([{ segments: Array(170).fill(1) }, { segments: [0.5] }, { segments: [0] }])).toBe(33);
+    expect(categoryPercent([])).toBe(0);
+    expect(categoryPercent([{ segments: [] }])).toBe(0);
     expect(sharePercent([1, 0.5, 0, 0.4])).toBe(48);
     expect(sharePercent([])).toBe(0);
     expect(resourceComplete([1, 1])).toBe(true);
