@@ -650,7 +650,7 @@ export function createApp(db: Db): Express {
     asyncHandler(async (req, res) => {
       const body = z
         .object({
-          pages: z.number().int().positive().max(5000).optional(),
+          page: z.number().int().positive().max(5000).optional(),
           chapters: z.number().int().positive().max(500).optional(),
         })
         .parse(req.body);

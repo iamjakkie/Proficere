@@ -644,24 +644,24 @@ function finishShelfChapter(db: Db, bookId: string, chapterId: string, progressP
 }
 
 /**
- * Records a paper sitting. `pages` is how many pages were read, added to the
- * furthest page already logged. `chapters` is that many planned chapters when
- * the book has no page numbers. Exams in the way are set aside. No new exam is written.
+ * Records a paper sitting. `page` is the page finished on. `chapters` is how
+ * many planned chapters were finished when the book has no page numbers.
+ * Exams in the way are set aside. No new exam is written.
  */
 export function logShelfReading(
   db: Db,
   bookId: string,
-  input: { pages?: number; chapters?: number },
+  input: { page?: number; chapters?: number },
 ): { chapters: Chapter[]; completed: number; throughPage: number | null } {
   const book = getBook(db, bookId);
   const chapters = listChapters(db, bookId);
-  if (input.pages != null) {
-    const opened = Number(book.identifiers.readPdfPage);
-    const plan = shelfReadingPlan(chapters, input.pages, Number.isInteger(opened) && opened > 0 ? opened : null);
+  if (input.page != null) {
+    const plan = shelfReadingPlan(chapters, input.page, {
+      pdf: Number(book.identifiers.readPdfPage),
+      printed: Number(book.identifiers.readPrintedPage),
+    });
     if (!plan) throw new AppError("This book has no page numbers to log.", "validation", 400);
-    if (plan.updates.length === 0) {
-      throw new AppError("Those pages are already read.", "validation", 400);
-    }
+    if (plan.through <= plan.reached) throw new AppError("That page is already read.", "validation", 400);
     let completed = 0;
     for (const update of plan.updates) {
       if (finishShelfChapter(db, bookId, update.id, update.progressPercent)) completed += 1;
@@ -670,13 +670,15 @@ export function logShelfReading(
       const filePages = Number(book.identifiers.pdfPageCount);
       const read = Number.isInteger(filePages) && filePages > 0 ? Math.min(filePages, plan.through) : plan.through;
       mergeBookIdentifiers(db, bookId, { readPdfPage: String(Math.max(1, read)) });
+    } else {
+      mergeBookIdentifiers(db, bookId, { readPrintedPage: String(plan.through) });
     }
-    logActivity(db, "shelf_reading", { bookId, pages: input.pages, throughPage: plan.through, completed });
+    logActivity(db, "shelf_reading", { bookId, page: input.page, throughPage: plan.through, completed });
     return { chapters: listChapters(db, bookId), completed, throughPage: plan.through };
   }
   const count = input.chapters ?? 0;
   if (!Number.isInteger(count) || count < 1) {
-    throw new AppError("Enter how many pages you read.", "validation", 400);
+    throw new AppError("Enter the page you finished on.", "validation", 400);
   }
   const planned = chapters.filter((chapter) => chapter.selected);
   const pool = planned.length > 0 ? planned : chapters;

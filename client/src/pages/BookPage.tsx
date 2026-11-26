@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import type { Book, Chapter, IslandState, OutlineChapter } from "@progress-island/shared";
-import { isFrontMatter, shelfReadingPlan } from "@progress-island/shared";
+import { isFrontMatter, shelfPageNow, shelfReadingPlan } from "@progress-island/shared";
 import { ApiError, api } from "../api";
 import { OutlineEditor, type OutlineRow } from "../OutlineEditor";
 
@@ -242,12 +242,15 @@ export function BookPage() {
     ? chapters.filter((chapter) => chapter.selected)
     : chapters;
   const shelfChapters = shelfPool.filter((chapter) => chapter.status !== "completed");
-  const openedPage = Number(book?.identifiers.readPdfPage);
-  const pageScale = shelfReadingPlan(chapters, 1, Number.isInteger(openedPage) && openedPage > 0 ? openedPage : null);
+  const pageStore = {
+    pdf: Number(book?.identifiers.readPdfPage),
+    printed: Number(book?.identifiers.readPrintedPage),
+  };
+  const pageNow = shelfPageNow(chapters, pageStore);
   const readCount = Number(readToday);
   const pagePlan =
-    pageScale && Number.isInteger(readCount) && readCount > 0
-      ? shelfReadingPlan(chapters, readCount, Number.isInteger(openedPage) && openedPage > 0 ? openedPage : null)
+    pageNow && Number.isInteger(readCount) && readCount > pageNow.reached
+      ? shelfReadingPlan(chapters, readCount, pageStore)
       : null;
 
   async function logShelf(event: FormEvent) {
@@ -263,7 +266,7 @@ export function BookPage() {
         exams: ChapterExam[];
       }>(`/api/books/${id}/reading/shelf`, {
         method: "POST",
-        body: JSON.stringify(pageScale ? { pages: readCount } : { chapters: readCount }),
+        body: JSON.stringify(pageNow ? { page: readCount } : { chapters: readCount }),
       });
       setChapters(data.chapters);
       setExams(data.exams);
@@ -477,14 +480,14 @@ export function BookPage() {
         <form className="card stack" onSubmit={(event) => void logShelf(event)}>
           <h2>Log today's reading</h2>
           <p className="muted">
-            {pageScale
-              ? pageScale.reached > 0
-                ? `Type how many pages you read. You are through ${pageScale.scale === "printed" ? "page" : "PDF page"} ${pageScale.reached}. An exam in the way is set aside.`
-                : "Type how many pages you read. An exam in the way is set aside."
+            {pageNow
+              ? pageNow.reached > 0
+                ? `Type the page you finished on. You are through ${pageNow.scale === "printed" ? "page" : "PDF page"} ${pageNow.reached}. An exam in the way is set aside.`
+                : "Type the page you finished on. An exam in the way is set aside."
               : "Type how many chapters you finished. The next ones in the plan are marked read. An exam in the way is set aside."}
           </p>
           <label>
-            {pageScale ? "Pages read" : "Chapters finished"}
+            {pageNow ? "Finished on page" : "Chapters finished"}
             <input
               inputMode="numeric"
               min={1}
@@ -493,13 +496,15 @@ export function BookPage() {
               onChange={(event) => setReadToday(event.target.value.replace(/[^\d]/g, ""))}
             />
           </label>
+          {pageNow && Number.isInteger(readCount) && readCount > 0 && readCount <= pageNow.reached && (
+            <p className="muted">Already through {pageNow.scale === "printed" ? "page" : "PDF page"} {pageNow.reached}.</p>
+          )}
           {pagePlan && (
             <p className="muted">
-              Through {pagePlan.scale === "printed" ? "page" : "PDF page"} {pagePlan.through}.{" "}
               {pagePlan.updates.filter((update) => update.progressPercent >= 100).length} chapters finished.
             </p>
           )}
-          <button className="btn primary" type="submit" disabled={busy || readCount < 1}>
+          <button className="btn primary" type="submit" disabled={busy || (pageNow ? !pagePlan : readCount < 1)}>
             Mark read
           </button>
         </form>

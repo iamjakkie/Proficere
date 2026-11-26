@@ -317,7 +317,7 @@ describe("reading progress from the viewer", () => {
        (id, project_id, version_number, brief_json, plan_json, source_snapshot_json, assessment_mode, created_at)
        VALUES ('paper-ver', 'paper-exam', 1, ?, '{}', '[]', 'objective', ?)`,
     ).run(JSON.stringify({ sources: [{ chapterId: firstId }] }), now);
-    const logged = await request(app).post(`/api/books/${id}/reading/shelf`).send({ pages: 25 }).expect(200);
+    const logged = await request(app).post(`/api/books/${id}/reading/shelf`).send({ page: 25 }).expect(200);
     expect(logged.body.completed).toBe(1);
     expect(logged.body.throughPage).toBe(25);
     expect(logged.body.chapters.map((chapter: { title: string; status: string; progressPercent: number }) => [chapter.title, chapter.status, chapter.progressPercent])).toEqual([
@@ -329,11 +329,11 @@ describe("reading progress from the viewer", () => {
     expect(logged.body.exams).toEqual([]);
     const note = h.db.prepare("SELECT note FROM progress_events WHERE chapter_id = ?").get(firstId) as { note: string };
     expect(note.note).toBe("Read in the physical book");
-    const again = await request(app).post(`/api/books/${id}/reading/shelf`).send({ pages: 10 }).expect(200);
+    const again = await request(app).post(`/api/books/${id}/reading/shelf`).send({ page: 35 }).expect(200);
     expect(again.body.throughPage).toBe(35);
     expect(again.body.chapters[2]).toMatchObject({ status: "completed", progressPercent: 100 });
     expect(again.body.chapters[1].status).toBe("not_started");
-    await request(app).post(`/api/books/${id}/reading/shelf`).send({ pages: 1 }).expect(400);
+    await request(app).post(`/api/books/${id}/reading/shelf`).send({ page: 35 }).expect(400);
 
     const bare = await request(app).post("/api/books").send({ title: "No pages" });
     const bareId = bare.body.book.id as string;

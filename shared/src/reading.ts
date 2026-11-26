@@ -286,18 +286,17 @@ function pageReached(
   return Math.min(span.end, span.start + Math.max(done, 0) - 1);
 }
 
-/**
- * Where a paper sitting lands. `pages` is how many pages were read today, added
- * to the furthest page already logged. Planned chapters that sit on those pages
- * move. A chapter left out of the plan does not. Returns null when the book has
- * no page numbers.
- */
-export function shelfReadingPlan(
+export type ShelfPageStore = { pdf?: number | null; printed?: number | null };
+
+function shelfSpans(
   chapters: ShelfSpanChapter[],
-  pages: number,
-  opened?: number | null,
-): ShelfPagePlan | null {
-  if (!Number.isInteger(pages) || pages < 1 || !chapters.length) return null;
+  stored?: ShelfPageStore | null,
+): {
+  scale: "printed" | "pdf";
+  reached: number;
+  spans: Map<number, { start: number; end: number }>;
+} | null {
+  if (!chapters.length) return null;
   const indexes = chapters
     .map((chapter, index) => ({ chapter, index }))
     .filter(({ chapter }, _, all) => (all.some((item) => item.chapter.selected) ? chapter.selected !== false : true))
@@ -317,23 +316,47 @@ export function shelfReadingPlan(
     if (span) spans.set(index, span);
   }
   if (spans.size === 0) return null;
-  let reached = scale === "pdf" ? (wholePage(opened) ?? 0) : 0;
+  const storedPage = scale === "pdf" ? wholePage(stored?.pdf) : wholePage(stored?.printed);
+  let reached = storedPage ?? 0;
   for (const [index, span] of spans) {
     const chapter = chapters[index];
     if (!chapter) continue;
     const value = pageReached(chapter, span, scale);
     if (value != null) reached = Math.max(reached, value);
   }
-  const first = Math.min(...[...spans.values()].map((span) => span.start));
-  const through = (reached > 0 ? reached : first - 1) + pages;
+  return { scale, reached, spans };
+}
+
+/** Furthest page already logged. Null when the book has no page numbers. */
+export function shelfPageNow(
+  chapters: ShelfSpanChapter[],
+  stored?: ShelfPageStore | null,
+): { scale: "printed" | "pdf"; reached: number } | null {
+  const located = shelfSpans(chapters, stored);
+  if (!located) return null;
+  return { scale: located.scale, reached: located.reached };
+}
+
+/**
+ * Chapters that move when the paper copy is finished on `page`. A chapter left
+ * out of the plan does not move. Returns null when the book has no page numbers.
+ */
+export function shelfReadingPlan(
+  chapters: ShelfSpanChapter[],
+  page: number,
+  stored?: ShelfPageStore | null,
+): ShelfPagePlan | null {
+  if (!Number.isInteger(page) || page < 1) return null;
+  const located = shelfSpans(chapters, stored);
+  if (!located) return null;
   const updates: { id: string; progressPercent: number }[] = [];
-  for (const [index, span] of spans) {
+  for (const [index, span] of located.spans) {
     const chapter = chapters[index];
-    if (!chapter || through < span.start) continue;
+    if (!chapter || page < span.start) continue;
     const length = span.end - span.start + 1;
     const progressPercent =
-      through >= span.end ? 100 : Math.max(1, Math.min(99, Math.round(((through - span.start + 1) / length) * 100)));
+      page >= span.end ? 100 : Math.max(1, Math.min(99, Math.round(((page - span.start + 1) / length) * 100)));
     if (progressPercent > chapter.progressPercent) updates.push({ id: chapter.id, progressPercent });
   }
-  return { scale, reached, through, updates };
+  return { scale: located.scale, reached: located.reached, through: page, updates };
 }
