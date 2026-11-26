@@ -25,6 +25,7 @@ import {
   milestoneChapterIds,
   milestoneSpanIds,
   readingMilestoneGate,
+  shelfReadingPlan,
   trunkBlocks,
   treeTypeForBook,
   reviewCompleteKey,
@@ -623,40 +624,70 @@ export function skipMilestoneExam(db: Db, bookId: string, chapterId: string): vo
 
 const SHELF_NOTE = "Read in the physical book";
 
+function finishShelfChapter(db: Db, bookId: string, chapterId: string, progressPercent: number): boolean {
+  const chapter = getChapter(db, chapterId);
+  if (chapter.status === "completed" || progressPercent <= chapter.progressPercent) return false;
+  if (progressPercent >= 100) {
+    for (let guard = 0; guard < 8; guard += 1) {
+      const lock = examLockMessage(db, getChapter(db, chapterId));
+      if (!lock) break;
+      skipMilestoneExam(db, bookId, lock.chapterId);
+    }
+  }
+  updateChapter(db, chapterId, { progressPercent, eventNote: SHELF_NOTE });
+  if (progressPercent >= 100) {
+    const projectId = examProjectId(db, [chapterId]);
+    if (projectId) skipMilestoneExam(db, bookId, chapterId);
+    return getChapter(db, chapterId).status === "completed";
+  }
+  return false;
+}
+
 /**
- * Marks every planned chapter through the one just finished on paper.
- * An exam that would block that run is set aside. No new exam is written.
+ * Records a paper sitting. `pages` is how many pages were read, added to the
+ * furthest page already logged. `chapters` is that many planned chapters when
+ * the book has no page numbers. Exams in the way are set aside. No new exam is written.
  */
 export function logShelfReading(
   db: Db,
   bookId: string,
-  throughChapterId: string,
-): { chapters: Chapter[]; completed: number } {
-  getBook(db, bookId);
+  input: { pages?: number; chapters?: number },
+): { chapters: Chapter[]; completed: number; throughPage: number | null } {
+  const book = getBook(db, bookId);
   const chapters = listChapters(db, bookId);
-  const target = chapters.find((chapter) => chapter.id === throughChapterId);
-  if (!target) throw new AppError("That chapter is not in this book.", "not_found", 404);
+  if (input.pages != null) {
+    const opened = Number(book.identifiers.readPdfPage);
+    const plan = shelfReadingPlan(chapters, input.pages, Number.isInteger(opened) && opened > 0 ? opened : null);
+    if (!plan) throw new AppError("This book has no page numbers to log.", "validation", 400);
+    if (plan.updates.length === 0) {
+      throw new AppError("Those pages are already read.", "validation", 400);
+    }
+    let completed = 0;
+    for (const update of plan.updates) {
+      if (finishShelfChapter(db, bookId, update.id, update.progressPercent)) completed += 1;
+    }
+    if (plan.scale === "pdf") {
+      const filePages = Number(book.identifiers.pdfPageCount);
+      const read = Number.isInteger(filePages) && filePages > 0 ? Math.min(filePages, plan.through) : plan.through;
+      mergeBookIdentifiers(db, bookId, { readPdfPage: String(Math.max(1, read)) });
+    }
+    logActivity(db, "shelf_reading", { bookId, pages: input.pages, throughPage: plan.through, completed });
+    return { chapters: listChapters(db, bookId), completed, throughPage: plan.through };
+  }
+  const count = input.chapters ?? 0;
+  if (!Number.isInteger(count) || count < 1) {
+    throw new AppError("Enter how many pages you read.", "validation", 400);
+  }
   const planned = chapters.filter((chapter) => chapter.selected);
   const pool = planned.length > 0 ? planned : chapters;
-  if (!pool.some((chapter) => chapter.id === target.id)) {
-    throw new AppError("That chapter is not in the plan.", "validation", 400);
-  }
-  const toFinish = pool.filter(
-    (chapter) => chapter.outlinePosition <= target.outlinePosition && chapter.status !== "completed",
-  );
+  const toFinish = pool.filter((chapter) => chapter.status !== "completed").slice(0, count);
   if (toFinish.length === 0) throw new AppError("Those chapters are already finished.", "validation", 400);
+  let completed = 0;
   for (const chapter of toFinish) {
-    for (let guard = 0; guard < 8; guard += 1) {
-      const lock = examLockMessage(db, getChapter(db, chapter.id));
-      if (!lock) break;
-      skipMilestoneExam(db, bookId, lock.chapterId);
-    }
-    updateChapter(db, chapter.id, { progressPercent: 100, eventNote: SHELF_NOTE });
-    const projectId = examProjectId(db, [chapter.id]);
-    if (projectId) skipMilestoneExam(db, bookId, chapter.id);
+    if (finishShelfChapter(db, bookId, chapter.id, 100)) completed += 1;
   }
-  logActivity(db, "shelf_reading", { bookId, throughChapterId, completed: toFinish.length });
-  return { chapters: listChapters(db, bookId), completed: toFinish.length };
+  logActivity(db, "shelf_reading", { bookId, chapters: count, completed });
+  return { chapters: listChapters(db, bookId), completed, throughPage: null };
 }
 
 /** Stops this milestone from asking for an exam. The chapter must belong to the book. */

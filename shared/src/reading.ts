@@ -229,3 +229,111 @@ export function resumePdfPage(chapter: ReadingChapter): number | null {
   if (chapter.pdfPageEnd != null && credited > chapter.pdfPageEnd) return chapter.pdfPageStart;
   return credited;
 }
+
+export type ShelfSpanChapter = {
+  id: string;
+  selected?: boolean;
+  progressPercent: number;
+  pagePosition?: string | null;
+  pageStart?: string | null;
+  pageEnd?: string | null;
+  pdfPageStart?: number | null;
+  pdfPageEnd?: number | null;
+};
+
+export type ShelfPagePlan = {
+  /** Printed page numbers from the paper book, or PDF pages when those are all the outline has. */
+  scale: "printed" | "pdf";
+  /** Furthest page already logged, or 0 when none is. */
+  reached: number;
+  /** Page this sitting lands on. */
+  through: number;
+  updates: { id: string; progressPercent: number }[];
+};
+
+function wholePage(value: unknown): number | null {
+  const page = Number(value);
+  return Number.isInteger(page) && page > 0 ? page : null;
+}
+
+function printedSpan(chapters: ShelfSpanChapter[], index: number): { start: number; end: number } | null {
+  const start = wholePage(chapters[index]?.pageStart);
+  if (start == null) return null;
+  let end = wholePage(chapters[index]?.pageEnd);
+  if (end == null || end < start) {
+    const next = chapters
+      .slice(index + 1)
+      .map((chapter) => wholePage(chapter.pageStart))
+      .find((page) => page != null && page > start);
+    end = next != null ? next - 1 : start;
+  }
+  return { start, end };
+}
+
+function pageReached(
+  chapter: ShelfSpanChapter,
+  span: { start: number; end: number },
+  scale: "printed" | "pdf",
+): number | null {
+  if (chapter.progressPercent >= 100) return span.end;
+  if (scale === "pdf") {
+    const credited = creditedPdfPage(chapter.pagePosition);
+    if (credited != null && credited >= span.start) return Math.min(span.end, credited);
+  }
+  if (chapter.progressPercent <= 0) return null;
+  const length = span.end - span.start + 1;
+  const done = Math.round((chapter.progressPercent / 100) * length);
+  return Math.min(span.end, span.start + Math.max(done, 0) - 1);
+}
+
+/**
+ * Where a paper sitting lands. `pages` is how many pages were read today, added
+ * to the furthest page already logged. Planned chapters that sit on those pages
+ * move. A chapter left out of the plan does not. Returns null when the book has
+ * no page numbers.
+ */
+export function shelfReadingPlan(
+  chapters: ShelfSpanChapter[],
+  pages: number,
+  opened?: number | null,
+): ShelfPagePlan | null {
+  if (!Number.isInteger(pages) || pages < 1 || !chapters.length) return null;
+  const indexes = chapters
+    .map((chapter, index) => ({ chapter, index }))
+    .filter(({ chapter }, _, all) => (all.some((item) => item.chapter.selected) ? chapter.selected !== false : true))
+    .map(({ index }) => index);
+  const printed = indexes.some((index) => wholePage(chapters[index]?.pageStart) != null);
+  const scale: "printed" | "pdf" = printed ? "printed" : "pdf";
+  const reading: ReadingChapter[] = chapters.map((chapter, index) => ({
+    id: chapter.id || String(index),
+    pdfPageStart: chapter.pdfPageStart ?? null,
+    pdfPageEnd: chapter.pdfPageEnd ?? null,
+    progressPercent: chapter.progressPercent,
+    pagePosition: chapter.pagePosition,
+  }));
+  const spans = new Map<number, { start: number; end: number }>();
+  for (const index of indexes) {
+    const span = scale === "printed" ? printedSpan(chapters, index) : chapterPdfSpan(reading, index, 0);
+    if (span) spans.set(index, span);
+  }
+  if (spans.size === 0) return null;
+  let reached = scale === "pdf" ? (wholePage(opened) ?? 0) : 0;
+  for (const [index, span] of spans) {
+    const chapter = chapters[index];
+    if (!chapter) continue;
+    const value = pageReached(chapter, span, scale);
+    if (value != null) reached = Math.max(reached, value);
+  }
+  const first = Math.min(...[...spans.values()].map((span) => span.start));
+  const through = (reached > 0 ? reached : first - 1) + pages;
+  const updates: { id: string; progressPercent: number }[] = [];
+  for (const [index, span] of spans) {
+    const chapter = chapters[index];
+    if (!chapter || through < span.start) continue;
+    const length = span.end - span.start + 1;
+    const progressPercent =
+      through >= span.end ? 100 : Math.max(1, Math.min(99, Math.round(((through - span.start + 1) / length) * 100)));
+    if (progressPercent > chapter.progressPercent) updates.push({ id: chapter.id, progressPercent });
+  }
+  return { scale, reached, through, updates };
+}

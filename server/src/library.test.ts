@@ -298,15 +298,14 @@ describe("reading progress from the viewer", () => {
       .post(`/api/books/${id}/chapters/confirm`)
       .send({
         outline: [
-          { number: "1", title: "Chapter 1 Frames" },
-          { number: "2", title: "Chapter 2 Sensors" },
-          { number: "3", title: "Chapter 3 Filters" },
+          { number: "1", title: "Chapter 1 Frames", pdfPageStart: 1, pdfPageEnd: 10 },
+          { number: "2", title: "Chapter 2 Sensors", pdfPageStart: 11, pdfPageEnd: 20 },
+          { number: "3", title: "Chapter 3 Filters", pdfPageStart: 21, pdfPageEnd: 30 },
         ],
       })
       .expect(200);
     const firstId = saved.body.chapters[0].id as string;
     const secondId = saved.body.chapters[1].id as string;
-    const thirdId = saved.body.chapters[2].id as string;
     await request(app).patch(`/api/chapters/${secondId}`).send({ selected: false }).expect(200);
     const now = new Date().toISOString();
     h.db.prepare(
@@ -318,22 +317,39 @@ describe("reading progress from the viewer", () => {
        (id, project_id, version_number, brief_json, plan_json, source_snapshot_json, assessment_mode, created_at)
        VALUES ('paper-ver', 'paper-exam', 1, ?, '{}', '[]', 'objective', ?)`,
     ).run(JSON.stringify({ sources: [{ chapterId: firstId }] }), now);
-    const logged = await request(app)
-      .post(`/api/books/${id}/reading/shelf`)
-      .send({ throughChapterId: thirdId })
-      .expect(200);
-    expect(logged.body.completed).toBe(2);
-    expect(logged.body.chapters.map((chapter: { title: string; status: string }) => [chapter.title, chapter.status])).toEqual([
-      ["Chapter 1 Frames", "completed"],
-      ["Chapter 2 Sensors", "not_started"],
-      ["Chapter 3 Filters", "completed"],
+    const logged = await request(app).post(`/api/books/${id}/reading/shelf`).send({ pages: 25 }).expect(200);
+    expect(logged.body.completed).toBe(1);
+    expect(logged.body.throughPage).toBe(25);
+    expect(logged.body.chapters.map((chapter: { title: string; status: string; progressPercent: number }) => [chapter.title, chapter.status, chapter.progressPercent])).toEqual([
+      ["Chapter 1 Frames", "completed", 100],
+      ["Chapter 2 Sensors", "not_started", 0],
+      ["Chapter 3 Filters", "in_progress", 50],
     ]);
     expect(h.db.prepare("SELECT status FROM projects WHERE id = 'paper-exam'").get()).toMatchObject({ status: "dismissed" });
     expect(logged.body.exams).toEqual([]);
     const note = h.db.prepare("SELECT note FROM progress_events WHERE chapter_id = ?").get(firstId) as { note: string };
     expect(note.note).toBe("Read in the physical book");
-    await request(app).post(`/api/books/${id}/reading/shelf`).send({ throughChapterId: thirdId }).expect(400);
-    await request(app).post(`/api/books/${id}/reading/shelf`).send({ throughChapterId: secondId }).expect(400);
+    const again = await request(app).post(`/api/books/${id}/reading/shelf`).send({ pages: 10 }).expect(200);
+    expect(again.body.throughPage).toBe(35);
+    expect(again.body.chapters[2]).toMatchObject({ status: "completed", progressPercent: 100 });
+    expect(again.body.chapters[1].status).toBe("not_started");
+    await request(app).post(`/api/books/${id}/reading/shelf`).send({ pages: 1 }).expect(400);
+
+    const bare = await request(app).post("/api/books").send({ title: "No pages" });
+    const bareId = bare.body.book.id as string;
+    await request(app)
+      .post(`/api/books/${bareId}/chapters/confirm`)
+      .send({
+        outline: [
+          { number: null, title: "One" },
+          { number: null, title: "Two" },
+          { number: null, title: "Three" },
+        ],
+      })
+      .expect(200);
+    const counted = await request(app).post(`/api/books/${bareId}/reading/shelf`).send({ chapters: 2 }).expect(200);
+    expect(counted.body.completed).toBe(2);
+    expect(counted.body.chapters[2].status).toBe("not_started");
   });
 
   it("removes a created exam and lets reading continue", async () => {

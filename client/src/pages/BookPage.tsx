@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import type { Book, Chapter, IslandState, OutlineChapter } from "@progress-island/shared";
-import { isFrontMatter } from "@progress-island/shared";
+import { isFrontMatter, shelfReadingPlan } from "@progress-island/shared";
 import { ApiError, api } from "../api";
 import { OutlineEditor, type OutlineRow } from "../OutlineEditor";
 
@@ -112,7 +112,7 @@ export function BookPage() {
   const [draftSourceId, setDraftSourceId] = useState<string | null>(null);
   const [unmatched, setUnmatched] = useState<UnmatchedChapter[]>([]);
   const [manualTitle, setManualTitle] = useState("");
-  const [throughId, setThroughId] = useState("");
+  const [readToday, setReadToday] = useState("");
   const [busy, setBusy] = useState(false);
   const [libraryConfigured, setLibraryConfigured] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -242,25 +242,36 @@ export function BookPage() {
     ? chapters.filter((chapter) => chapter.selected)
     : chapters;
   const shelfChapters = shelfPool.filter((chapter) => chapter.status !== "completed");
-  const shelfThrough = shelfChapters.some((chapter) => chapter.id === throughId)
-    ? throughId
-    : (shelfChapters[0]?.id ?? "");
+  const openedPage = Number(book?.identifiers.readPdfPage);
+  const pageScale = shelfReadingPlan(chapters, 1, Number.isInteger(openedPage) && openedPage > 0 ? openedPage : null);
+  const readCount = Number(readToday);
+  const pagePlan =
+    pageScale && Number.isInteger(readCount) && readCount > 0
+      ? shelfReadingPlan(chapters, readCount, Number.isInteger(openedPage) && openedPage > 0 ? openedPage : null)
+      : null;
 
   async function logShelf(event: FormEvent) {
     event.preventDefault();
-    if (!id || !shelfThrough) return;
+    if (!id || !Number.isInteger(readCount) || readCount < 1) return;
     setBusy(true);
     setError(null);
     try {
-      const data = await api<{ chapters: Chapter[]; completed: number; exams: ChapterExam[] }>(
-        `/api/books/${id}/reading/shelf`,
-        { method: "POST", body: JSON.stringify({ throughChapterId: shelfThrough }) },
-      );
+      const data = await api<{
+        chapters: Chapter[];
+        completed: number;
+        throughPage: number | null;
+        exams: ChapterExam[];
+      }>(`/api/books/${id}/reading/shelf`, {
+        method: "POST",
+        body: JSON.stringify(pageScale ? { pages: readCount } : { chapters: readCount }),
+      });
       setChapters(data.chapters);
       setExams(data.exams);
       setChapterNotice(null);
-      const marked = data.completed === 1 ? "1 chapter" : `${data.completed} chapters`;
-      setNotice(`Marked ${marked} read.`);
+      setReadToday("");
+      const landed = data.throughPage != null ? ` Through page ${data.throughPage}.` : "";
+      const marked = data.completed === 1 ? "1 chapter finished." : `${data.completed} chapters finished.`;
+      setNotice(`${marked}${landed}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Today's reading could not be saved.");
     } finally {
@@ -466,21 +477,29 @@ export function BookPage() {
         <form className="card stack" onSubmit={(event) => void logShelf(event)}>
           <h2>Log today's reading</h2>
           <p className="muted">
-            For a paper copy. Plan {completedSelected}/{selected.length}. Every planned chapter through the one you
-            choose is marked finished. An exam that would stop that is set aside, and no new exam is written.
+            {pageScale
+              ? pageScale.reached > 0
+                ? `Type how many pages you read. You are through ${pageScale.scale === "printed" ? "page" : "PDF page"} ${pageScale.reached}. An exam in the way is set aside.`
+                : "Type how many pages you read. An exam in the way is set aside."
+              : "Type how many chapters you finished. The next ones in the plan are marked read. An exam in the way is set aside."}
           </p>
           <label>
-            Read through
-            <select value={shelfThrough} onChange={(event) => setThroughId(event.target.value)}>
-              {shelfChapters.map((chapter) => (
-                <option key={chapter.id} value={chapter.id}>
-                  {chapter.number ? `${chapter.number}. ` : ""}
-                  {chapter.title}
-                </option>
-              ))}
-            </select>
+            {pageScale ? "Pages read" : "Chapters finished"}
+            <input
+              inputMode="numeric"
+              min={1}
+              step={1}
+              value={readToday}
+              onChange={(event) => setReadToday(event.target.value.replace(/[^\d]/g, ""))}
+            />
           </label>
-          <button className="btn primary" type="submit" disabled={busy || !shelfThrough}>
+          {pagePlan && (
+            <p className="muted">
+              Through {pagePlan.scale === "printed" ? "page" : "PDF page"} {pagePlan.through}.{" "}
+              {pagePlan.updates.filter((update) => update.progressPercent >= 100).length} chapters finished.
+            </p>
+          )}
+          <button className="btn primary" type="submit" disabled={busy || readCount < 1}>
             Mark read
           </button>
         </form>
