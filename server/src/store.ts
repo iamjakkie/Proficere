@@ -436,6 +436,7 @@ export function updateChapter(
     printed: boolean;
     progressPercent: number;
     note: string | null;
+    eventNote: string | null;
     pagePosition: string | null;
   }>,
 ): Chapter {
@@ -485,7 +486,7 @@ export function updateChapter(
     id,
     JSON.stringify(chapterStateSnapshot(current)),
     JSON.stringify(chapterStateSnapshot(nextChapter)),
-    patch.note ?? null,
+    patch.eventNote !== undefined ? patch.eventNote : (patch.note ?? null),
     ts,
   );
   db.prepare(
@@ -618,6 +619,44 @@ export function skipMilestoneExam(db: Db, bookId: string, chapterId: string): vo
   const ids = markExamSkipped(db, bookId, chapterId);
   const projectId = examProjectId(db, ids);
   if (projectId) retireExam(db, projectId);
+}
+
+const SHELF_NOTE = "Read in the physical book";
+
+/**
+ * Marks every planned chapter through the one just finished on paper.
+ * An exam that would block that run is set aside. No new exam is written.
+ */
+export function logShelfReading(
+  db: Db,
+  bookId: string,
+  throughChapterId: string,
+): { chapters: Chapter[]; completed: number } {
+  getBook(db, bookId);
+  const chapters = listChapters(db, bookId);
+  const target = chapters.find((chapter) => chapter.id === throughChapterId);
+  if (!target) throw new AppError("That chapter is not in this book.", "not_found", 404);
+  const planned = chapters.filter((chapter) => chapter.selected);
+  const pool = planned.length > 0 ? planned : chapters;
+  if (!pool.some((chapter) => chapter.id === target.id)) {
+    throw new AppError("That chapter is not in the plan.", "validation", 400);
+  }
+  const toFinish = pool.filter(
+    (chapter) => chapter.outlinePosition <= target.outlinePosition && chapter.status !== "completed",
+  );
+  if (toFinish.length === 0) throw new AppError("Those chapters are already finished.", "validation", 400);
+  for (const chapter of toFinish) {
+    for (let guard = 0; guard < 8; guard += 1) {
+      const lock = examLockMessage(db, getChapter(db, chapter.id));
+      if (!lock) break;
+      skipMilestoneExam(db, bookId, lock.chapterId);
+    }
+    updateChapter(db, chapter.id, { progressPercent: 100, eventNote: SHELF_NOTE });
+    const projectId = examProjectId(db, [chapter.id]);
+    if (projectId) skipMilestoneExam(db, bookId, chapter.id);
+  }
+  logActivity(db, "shelf_reading", { bookId, throughChapterId, completed: toFinish.length });
+  return { chapters: listChapters(db, bookId), completed: toFinish.length };
 }
 
 /** Stops this milestone from asking for an exam. The chapter must belong to the book. */

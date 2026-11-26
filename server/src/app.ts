@@ -123,6 +123,7 @@ import {
   nowIso,
   printQueue,
   recordReading,
+  logShelfReading,
   skipMilestoneExam,
   refreshPackStale,
   removeCategory,
@@ -641,6 +642,15 @@ export function createApp(db: Db): Express {
         examGate: gateWithFailure(result.examGate),
         examNotice: result.examNotice,
       });
+    }),
+  );
+
+  app.post(
+    "/api/books/:id/reading/shelf",
+    asyncHandler(async (req, res) => {
+      const body = z.object({ throughChapterId: z.string().uuid() }).parse(req.body);
+      const result = logShelfReading(db, req.params.id, body.throughChapterId);
+      res.json({ ...result, exams: examsForBook(db, req.params.id) });
     }),
   );
 

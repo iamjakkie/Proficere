@@ -112,6 +112,7 @@ export function BookPage() {
   const [draftSourceId, setDraftSourceId] = useState<string | null>(null);
   const [unmatched, setUnmatched] = useState<UnmatchedChapter[]>([]);
   const [manualTitle, setManualTitle] = useState("");
+  const [throughId, setThroughId] = useState("");
   const [busy, setBusy] = useState(false);
   const [libraryConfigured, setLibraryConfigured] = useState(false);
   const [libraryError, setLibraryError] = useState<string | null>(null);
@@ -234,6 +235,36 @@ export function BookPage() {
         examChapterId: typeof details?.chapterId === "string" ? details.chapterId : null,
         examTitle: typeof details?.title === "string" ? details.title : null,
       });
+    }
+  }
+
+  const shelfPool = chapters.some((chapter) => chapter.selected)
+    ? chapters.filter((chapter) => chapter.selected)
+    : chapters;
+  const shelfChapters = shelfPool.filter((chapter) => chapter.status !== "completed");
+  const shelfThrough = shelfChapters.some((chapter) => chapter.id === throughId)
+    ? throughId
+    : (shelfChapters[0]?.id ?? "");
+
+  async function logShelf(event: FormEvent) {
+    event.preventDefault();
+    if (!id || !shelfThrough) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await api<{ chapters: Chapter[]; completed: number; exams: ChapterExam[] }>(
+        `/api/books/${id}/reading/shelf`,
+        { method: "POST", body: JSON.stringify({ throughChapterId: shelfThrough }) },
+      );
+      setChapters(data.chapters);
+      setExams(data.exams);
+      setChapterNotice(null);
+      const marked = data.completed === 1 ? "1 chapter" : `${data.completed} chapters`;
+      setNotice(`Marked ${marked} read.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Today's reading could not be saved.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -431,6 +462,29 @@ export function BookPage() {
           )}
         </div>
       </div>
+      {shelfChapters.length > 0 && (
+        <form className="card stack" onSubmit={(event) => void logShelf(event)}>
+          <h2>Log today's reading</h2>
+          <p className="muted">
+            For a paper copy. Plan {completedSelected}/{selected.length}. Every planned chapter through the one you
+            choose is marked finished. An exam that would stop that is set aside, and no new exam is written.
+          </p>
+          <label>
+            Read through
+            <select value={shelfThrough} onChange={(event) => setThroughId(event.target.value)}>
+              {shelfChapters.map((chapter) => (
+                <option key={chapter.id} value={chapter.id}>
+                  {chapter.number ? `${chapter.number}. ` : ""}
+                  {chapter.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="btn primary" type="submit" disabled={busy || !shelfThrough}>
+            Mark read
+          </button>
+        </form>
+      )}
       <CoverEditor
         key={book.id}
         book={book}
